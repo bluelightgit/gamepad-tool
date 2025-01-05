@@ -3,28 +3,32 @@ use std::sync::Mutex;
 use std::thread::JoinHandle;
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
-use windows::{
-    core::Result,
-    Gaming::Input::{Gamepad, GamepadButtons, GamepadReading},
-};
 use tauri::Emitter;
 use windows::Win32::UI::Input::XboxController::{
     XInputGetBatteryInformation, XInputGetCapabilities, XInputGetState, BATTERY_DEVTYPE, BATTERY_LEVEL_EMPTY, BATTERY_LEVEL_FULL, BATTERY_LEVEL_LOW, BATTERY_LEVEL_MEDIUM, XINPUT_BATTERY_INFORMATION, XINPUT_CAPABILITIES, XINPUT_FLAG_ALL, XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B, XINPUT_GAMEPAD_BACK, XINPUT_GAMEPAD_BUTTON_FLAGS, XINPUT_GAMEPAD_DPAD_DOWN, XINPUT_GAMEPAD_DPAD_LEFT, XINPUT_GAMEPAD_DPAD_RIGHT, XINPUT_GAMEPAD_DPAD_UP, XINPUT_GAMEPAD_LEFT_SHOULDER, XINPUT_GAMEPAD_LEFT_THUMB, XINPUT_GAMEPAD_RIGHT_SHOULDER, XINPUT_GAMEPAD_RIGHT_THUMB, XINPUT_GAMEPAD_START, XINPUT_GAMEPAD_X, XINPUT_GAMEPAD_Y, XINPUT_STATE, XUSER_MAX_COUNT
 };
 
-pub const FRAME_RATE: u32 = 60;
+pub const DEFAULT_FRAME_RATE: u32 = 60;
 
 pub struct GamepadState {
     xinput_state: XINPUT_STATE,
-    gamepads: HashMap<u32, GamepadInfo>,
+    frame_rate: u32,
+    polling_rate_log: HashMap<u32, Vec<PollingRateLog>>, // user_index, (timestamp, (x, y))
+    polling_rate_mem: HashMap<u32, PollingRateResult>, // user_index, (avg, min, max)
 }
 
 impl GamepadState {
     pub fn new() -> Self {
         GamepadState { 
             xinput_state: XINPUT_STATE::default(),
-            gamepads: HashMap::new() 
+            frame_rate: DEFAULT_FRAME_RATE,
+            polling_rate_log: HashMap::new(),
+            polling_rate_mem: HashMap::new(),
         }
+    }
+
+    pub fn set_frame_rate(&mut self, frame_rate: u32) {
+        self.frame_rate = frame_rate;
     }
 
     /// 从 XInput 控制器状态构造 GamepadInfo
@@ -136,107 +140,52 @@ impl GamepadState {
         infos
     }
 
-    pub fn get_gameinput_info(&self) -> Result<HashMap<u32, GamepadInfo>> {
-        let mut gamepads_info = HashMap::new();
-    
-        // 获取所有连接的游戏手柄
-        let gamepads = Gamepad::Gamepads()?;
-    
-        for gamepad in gamepads {
-            // 读取当前手柄状态
-            let reading: GamepadReading = gamepad.GetCurrentReading()?;
-    
-            // 映射摇杆和扳机数据到 AxisData
-            let mut axes = HashMap::new();
-            axes.insert(
-                "LeftThumbstickX".to_string(),
-                AxisData {
-                    axis: "LeftThumbstickX".to_string(),
-                    value: reading.LeftThumbstickX,
-                },
-            );
-            axes.insert(
-                "LeftThumbstickY".to_string(),
-                AxisData {
-                    axis: "LeftThumbstickY".to_string(),
-                    value: reading.LeftThumbstickY,
-                },
-            );
-            axes.insert(
-                "RightThumbstickX".to_string(),
-                AxisData {
-                    axis: "RightThumbstickX".to_string(),
-                    value: reading.RightThumbstickX,
-                },
-            );
-            axes.insert(
-                "RightThumbstickY".to_string(),
-                AxisData {
-                    axis: "RightThumbstickY".to_string(),
-                    value: reading.RightThumbstickY,
-                },
-            );
-            axes.insert(
-                "LeftTrigger".to_string(),
-                AxisData {
-                    axis: "LeftTrigger".to_string(),
-                    value: reading.LeftTrigger,
-                },
-            );
-            axes.insert(
-                "RightTrigger".to_string(),
-                AxisData {
-                    axis: "RightTrigger".to_string(),
-                    value: reading.RightTrigger,
-                },
-            );
-    
-            // 映射按钮数据到 ButtonData
-            let mut buttons = HashMap::new();
-            let button_mappings = vec![
-                (GamepadButtons::A, "A"),
-                (GamepadButtons::B, "B"),
-                (GamepadButtons::X, "X"),
-                (GamepadButtons::Y, "Y"),
-                (GamepadButtons::LeftThumbstick, "LeftThumbstick"),
-                (GamepadButtons::RightThumbstick, "RightThumbstick"),
-                (GamepadButtons::LeftShoulder, "LeftShoulder"),
-                (GamepadButtons::RightShoulder, "RightShoulder"),
-                (GamepadButtons::DPadUp, "DPadUp"),
-                (GamepadButtons::DPadDown, "DPadDown"),
-                (GamepadButtons::DPadLeft, "DPadLeft"),
-                (GamepadButtons::DPadRight, "DPadRight"),
-                (GamepadButtons::Menu, "Menu"),
-                (GamepadButtons::View, "View"),
-            ];
-    
-            for (button, name) in button_mappings {
-                buttons.insert(
-                    name.to_string(),
-                    ButtonData {
-                        button: name.to_string(),
-                        is_pressed: reading.Buttons.contains(button),
-                        value: if reading.Buttons.contains(button) { 1.0 } else { 0.0 },
-                    },
-                );
+    pub fn get_polling_rate(&mut self, user_index: u32) -> PollingRateResult {
+        let logs = self.polling_rate_log.get(&user_index).unwrap();
+        let mut sum = 0.0;
+        let mut min = u64::MAX;
+        let mut max = u64::MIN;
+        let mut duplicate_count = 0;
+        for i in 1..logs.len() - 1 {
+            let log = &logs[i];
+            let prev_log = &logs[i - 1];
+            let delta = log.timestamp - prev_log.timestamp;
+            sum += delta as f64;
+            // 若前后数据点相同, 判定为重复并移除
+            if &log.xxyy == &prev_log.xxyy {
+                duplicate_count += 1;
+                continue;
             }
-    
-            // 构建 GamepadInfo
-            let gamepad_info = GamepadInfo {
-                id: 0, // 使用 Nonce 作为唯一 ID
-                name: "Gamepad".to_string(), // 名称可以根据需要进一步获取
-                vendor_id: None, // 需要额外 API 获取
-                product_id: None, // 需要额外 API 获取
-                power_info: "Unknown".to_string(), // 需要额外 API 获取
-                axes,
-                buttons,
-            };
-    
-            // 将手柄信息插入 HashMap
-            gamepads_info.insert(0, gamepad_info);
+            if delta < min {
+                min = delta;
+            }
+            if delta > max {
+                max = delta;
+            }
         }
-    
-        Ok(gamepads_info)
+        let avg = sum / ((logs.len() - duplicate_count) as f64);
+        let polling_rate = PollingRateResult { // 每秒 / 间隔 = 轮询率
+            polling_rate_avg: 1000.0 / avg,
+            polling_rate_min: 1000.0 / max as f64,
+            polling_rate_max: 1000.0 / min as f64,
+            drop_rate: (duplicate_count as f64) / (logs.len() as f64),
+        };
+        self.polling_rate_mem.insert(user_index, polling_rate.clone());
+        polling_rate
+    }
+
+    pub fn record_polling_rate(&mut self, user_index: u32) {
+        let logs = self.polling_rate_log.entry(user_index).or_insert(Vec::new());
+        let mut state = self.xinput_state;
+        unsafe { XInputGetState(user_index, &mut state) };
+        let gamepad = state.Gamepad;
+        let x = gamepad.sThumbLX;
+        let y = gamepad.sThumbLY;
+        println!("{:?}", (x as f64 / 32767.0, y as f64 / 32767.0));
+        logs.push(PollingRateLog {
+            timestamp: chrono::Utc::now().timestamp_millis() as u64,
+            xxyy: (x, y),
+        });
     }
 }
 
@@ -264,6 +213,20 @@ pub struct GamepadInfo {
     pub buttons: HashMap<String, ButtonData>,
 }
 
+#[derive(Serialize, Debug, Deserialize, Clone)]
+pub struct PollingRateLog {
+    pub timestamp: u64,
+    pub xxyy: (i16, i16),
+}
+
+#[derive(Serialize, Debug, Deserialize, Clone)]
+pub struct PollingRateResult {
+    pub polling_rate_avg: f64,
+    pub polling_rate_min: f64,
+    pub polling_rate_max: f64,
+    pub drop_rate: f64,
+}
+
 impl GamepadInfo {
     pub fn to_string(&self) -> String {
         format!(
@@ -279,18 +242,41 @@ impl GamepadInfo {
 }
 
 #[tauri::command]
-pub fn start_update_thread(app_handle: tauri::AppHandle) -> JoinHandle<()> {
-    let gamepad_mutex = Mutex::new(GamepadState::new());
+pub fn start_update_thread(app_handle: tauri::AppHandle, mutex_state: Mutex<GamepadState>) -> JoinHandle<()> {
+    // let gamepad_mutex = Mutex::new(GamepadState::new());
     let handle = std::thread::spawn(move || {
         loop {
-            let mut gamepad_state = gamepad_mutex.lock().unwrap();
-            gamepad_state.gamepads = gamepad_state.get_xinput_gamepads();
+            let gamepad_state = mutex_state.lock().unwrap();
+            if !gamepad_state.polling_rate_mem.is_empty() {
+                println!("{:?}", gamepad_state.polling_rate_mem);
+            }
+            let gamepads = gamepad_state.get_xinput_gamepads();
             app_handle
-                .emit("gamepads_info", &gamepad_state.gamepads.clone()).ok()
+                .emit("gamepads_info", gamepads.clone()).ok()
                 .expect("failed to emit gamepads_info");
-            // 60 FPS
-            std::thread::sleep(Duration::from_millis((1000 / FRAME_RATE).into()));
+            // default 60 FPS
+            std::thread::sleep(Duration::from_millis((1000 / gamepad_state.frame_rate).into()));
         }
     });
     handle
+}
+
+#[tauri::command]
+pub fn get_polling_rate(user_index: u32, mutex_state: &Mutex<GamepadState>) -> PollingRateResult {
+    let mut gamepad_state = mutex_state.lock().unwrap();
+    gamepad_state.get_polling_rate(user_index)
+}
+
+#[tauri::command]
+pub fn record_polling_rate(user_index: u32, mutex_state: &Mutex<GamepadState>) {
+    let mut gamepad_state = mutex_state.lock().unwrap();
+    gamepad_state.polling_rate_log.insert(user_index, Vec::new());
+    while gamepad_state.polling_rate_log.get(&user_index).unwrap().len() <= 5000 {
+        gamepad_state.record_polling_rate(user_index);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+pub fn set_frame_rate(state: &mut GamepadState, frame_rate: u32) {
+    state.set_frame_rate(frame_rate);
 }

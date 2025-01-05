@@ -232,8 +232,8 @@ onMounted(() => {
 .button-info {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  min-width: 0; /* 允许内容缩小 */
+  justify-content: left;
+  min-width: 0;
 }
 
 .button-name {

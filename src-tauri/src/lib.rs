@@ -26,9 +26,12 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running tauri application");
     let app_handle = app.handle().clone();
-    let handle = util::gamepad_util::start_update_thread(app_handle);
-    app.run(|_, e| {
-        println!("{:?}", e);
+    let mutex_state = Mutex::new(GamepadState::new());
+    let handle = util::gamepad_util::start_update_thread(app_handle, mutex_state);
+    // let handle1 = util::gamepad_util::record_polling_rate(0, mutex_state);
+    app.run(|_, _: tauri::RunEvent| {
+        // println!("{:?}", e);
     });
     handle.join().unwrap();
+    // handle1.join().unwrap();
 }
