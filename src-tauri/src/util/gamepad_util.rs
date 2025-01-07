@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::char::MAX;
+use std::{collections::HashMap, sync::Arc};
 use std::sync::Mutex;
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -9,10 +10,11 @@ use windows::Win32::UI::Input::XboxController::{
 };
 
 pub const DEFAULT_FRAME_RATE: u32 = 60;
-
+pub const DEFAULT_POLLING_RATE_LOG_SIZE: usize = 5000;
 pub struct GamepadState {
     xinput_state: XINPUT_STATE,
     frame_rate: u32,
+    log_size: usize,
     polling_rate_log: HashMap<u32, Vec<PollingRateLog>>, // user_index, (timestamp, (x, y))
     polling_rate_mem: HashMap<u32, PollingRateResult>, // user_index, (avg, min, max)
 }
@@ -22,6 +24,7 @@ impl GamepadState {
         GamepadState { 
             xinput_state: XINPUT_STATE::default(),
             frame_rate: DEFAULT_FRAME_RATE,
+            log_size: DEFAULT_POLLING_RATE_LOG_SIZE,
             polling_rate_log: HashMap::new(),
             polling_rate_mem: HashMap::new(),
         }
@@ -146,15 +149,32 @@ impl GamepadState {
         let mut min = u64::MAX;
         let mut max = u64::MIN;
         let mut duplicate_count = 0;
-        for i in 1..logs.len() - 1 {
-            let log = &logs[i];
-            let prev_log = &logs[i - 1];
+        // for i in 1..logs.len() {
+        //     let log = &logs[i];
+        //     let prev_log = &logs[i - 1];
+        //     let delta = log.timestamp - prev_log.timestamp;
+        //     sum += delta as f64;
+        //     // 若前后数据点相同, 判定为重复并移除
+        //     if &log.xxyy == &prev_log.xxyy {
+        //         duplicate_count += 1;
+        //         continue;
+        //     }
+        //     if delta < min {
+        //         min = delta;
+        //     }
+        //     if delta > max {
+        //         max = delta;
+        //     }
+        // }
+        logs.windows(2).for_each(|pair| {
+            let log = &pair[1];
+            let prev_log = &pair[0];
             let delta = log.timestamp - prev_log.timestamp;
             sum += delta as f64;
             // 若前后数据点相同, 判定为重复并移除
             if &log.xxyy == &prev_log.xxyy {
                 duplicate_count += 1;
-                continue;
+                return;
             }
             if delta < min {
                 min = delta;
@@ -162,12 +182,12 @@ impl GamepadState {
             if delta > max {
                 max = delta;
             }
-        }
+        });
         let avg = sum / ((logs.len() - duplicate_count) as f64);
         let polling_rate = PollingRateResult { // 每秒 / 间隔 = 轮询率
-            polling_rate_avg: 1000.0 / avg,
-            polling_rate_min: 1000.0 / max as f64,
-            polling_rate_max: 1000.0 / min as f64,
+            polling_rate_avg: 1000000.0 / avg,
+            polling_rate_min: 1000000.0 / max as f64,
+            polling_rate_max: 1000000.0 / min as f64,
             drop_rate: (duplicate_count as f64) / (logs.len() as f64),
         };
         self.polling_rate_mem.insert(user_index, polling_rate.clone());
@@ -183,7 +203,7 @@ impl GamepadState {
         let y = gamepad.sThumbLY;
         println!("{:?}", (x as f64 / 32767.0, y as f64 / 32767.0));
         logs.push(PollingRateLog {
-            timestamp: chrono::Utc::now().timestamp_millis() as u64,
+            timestamp: chrono::Utc::now().timestamp_micros() as u64,
             xxyy: (x, y),
         });
     }
@@ -242,8 +262,9 @@ impl GamepadInfo {
 }
 
 #[tauri::command]
-pub fn start_update_thread(app_handle: tauri::AppHandle, mutex_state: Mutex<GamepadState>) -> JoinHandle<()> {
+pub fn start_update_thread(app_handle: tauri::AppHandle, mutex_state: Arc<Mutex<GamepadState>>) -> JoinHandle<()> {
     // let gamepad_mutex = Mutex::new(GamepadState::new());
+    // let mutex_state = Arc::clone(&mutex_state);
     let handle = std::thread::spawn(move || {
         loop {
             let gamepad_state = mutex_state.lock().unwrap();
@@ -262,16 +283,18 @@ pub fn start_update_thread(app_handle: tauri::AppHandle, mutex_state: Mutex<Game
 }
 
 #[tauri::command]
-pub fn get_polling_rate(user_index: u32, mutex_state: &Mutex<GamepadState>) -> PollingRateResult {
+pub fn get_polling_rate(user_index: u32, mutex_state: Arc<Mutex<GamepadState>>) -> PollingRateResult {
+    // let mutex_state = Arc::clone(&mutex_state);
     let mut gamepad_state = mutex_state.lock().unwrap();
     gamepad_state.get_polling_rate(user_index)
 }
 
 #[tauri::command]
-pub fn record_polling_rate(user_index: u32, mutex_state: &Mutex<GamepadState>) {
+pub fn record_polling_rate(user_index: u32, mutex_state: Arc<Mutex<GamepadState>>) {
+    // let mutex_state = Arc::clone(&mutex_state);
     let mut gamepad_state = mutex_state.lock().unwrap();
     gamepad_state.polling_rate_log.insert(user_index, Vec::new());
-    while gamepad_state.polling_rate_log.get(&user_index).unwrap().len() <= 5000 {
+    while gamepad_state.polling_rate_log.get(&user_index).unwrap().len() <= gamepad_state.log_size {
         gamepad_state.record_polling_rate(user_index);
         std::thread::sleep(Duration::from_millis(1));
     }
@@ -279,4 +302,8 @@ pub fn record_polling_rate(user_index: u32, mutex_state: &Mutex<GamepadState>) {
 
 pub fn set_frame_rate(state: &mut GamepadState, frame_rate: u32) {
     state.set_frame_rate(frame_rate);
+}
+
+pub fn set_log_size(state: &mut GamepadState, log_size: usize) {
+    state.log_size = log_size;
 }
