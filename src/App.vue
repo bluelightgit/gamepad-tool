@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import SysInfoPage from "./views/SysInfo.vue";
 import GamepadTestPage from "./views/GamepadTestPage.vue";
 
 const currentPage = ref<string | null>(null);

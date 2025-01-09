@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::{Arc, Mutex}, thread::JoinHandle};
 
-use tauri::Listener;
+use tauri::{Listener, Manager};
 use util::gamepad_util::{GamepadInfo, GamepadState};
 mod util {
     pub mod gamepad_util;
@@ -10,7 +10,7 @@ mod util {
 pub fn run() {
     let app = tauri::Builder::default()
         .manage(
-            GamepadState::new()
+            Arc::new(Mutex::new(GamepadState::new()))
         )
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
@@ -22,23 +22,17 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            // util::gamepad_util::start_update_thread,
+            util::gamepad_util::record_polling_rate,
+            util::gamepad_util::get_polling_rate,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application");
     let app_handle = app.handle().clone();
-    let mutex_state = Arc::new(Mutex::new(GamepadState::new()));
-    {
-        let mutex_state = Arc::clone(&mutex_state);
-        let handle = util::gamepad_util::start_update_thread(app_handle, mutex_state);
-        handle.join().unwrap();
-    }
-    {
-        let mutex_state = Arc::clone(&mutex_state);
-        let handle1 = util::gamepad_util::record_polling_rate(0, mutex_state);
-    }
+    let state = app_handle.state::<Arc<Mutex<GamepadState>>>().clone();
+    let mutex_state = Arc::clone(&state);
+    let update_thread = util::gamepad_util::start_update_thread(app_handle, mutex_state);
     app.run(|_, _: tauri::RunEvent| {
-        // println!("{:?}", e);
     });
-    // handle.join().unwrap();
-    // handle1.join().unwrap();
+    update_thread.join().unwrap();
 }

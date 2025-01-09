@@ -16,11 +16,11 @@
         <div v-if="selectedGamepad" class="gamepad-info">
           <h2>{{ selectedGamepad.name }}</h2>
           <p>Power Info: {{ selectedGamepad.power_info }}</p>
-          <p>Vendor ID: {{ selectedGamepad.vendor_id }}</p>
-          <p>Product ID: {{ selectedGamepad.product_id }}</p>
+          <!-- <p>Vendor ID: {{ selectedGamepad.vendor_id }}</p>
+          <p>Product ID: {{ selectedGamepad.product_id }}</p> -->
 
           <div class="layout-container">
-            <!-- 按键 -->
+            <!-- 按键区域 -->
             <div class="buttons-area">
               <h3>Buttons</h3>
               <div class="buttons-grid">
@@ -48,14 +48,9 @@
               </div>
             </div>
 
-            <!-- 摇杆 -->
+            <!-- 摇杆区域 -->
             <div class="axes-area">
-              <h3>Axes & Joysticks</h3>
-              <!-- <div class="axes-grid">
-                <div v-for="(axis, axisKey) in selectedGamepad.axes" :key="axisKey" class="axis-item">
-                  <strong>{{ axisKey }}:</strong> {{ axis.value.toFixed(2) }}
-                </div>
-              </div> -->
+              <h3>Joysticks</h3>
               <div class="joystick-group">
                 <JoystickVisualization
                   :axisX="selectedGamepad.axes['LeftThumbX']?.value || 0"
@@ -66,13 +61,39 @@
                   :axisY="selectedGamepad.axes['RightThumbY']?.value || 0"
                 />
               </div>
+
+              <!-- 记录polling rate log按钮和结果显示区域 -->
+              <div class="polling-rate-area">
+                <button @click="startRecordingPollingRate">Record</button>
+                <div v-if="pollingRateData" class="polling-rate-data">
+                  <p>Average: {{ pollingRateData.polling_rate_avg.toFixed(2) }} ms</p>
+                  <p>Minimum: {{ pollingRateData.polling_rate_min.toFixed(2) }} ms</p>
+                  <p>Maximum: {{ pollingRateData.polling_rate_max.toFixed(2) }} ms</p>
+                  <p>Drop Rate: {{ pollingRateData.drop_rate.toFixed(2) }} %</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 右下角显示polling rate log的区域 -->
+          <div class="log-area">
+            <h3>Polling Rate Logs</h3>
+            <div class="log-list">
+              <div
+                v-for="(log, index) in pollingRateLogs"
+                :key="index"
+                class="log-item"
+              >
+                <span class="log-timestamp">{{ formatTimestamp(log.timestamp) }}</span>
+                <span class="log-data">[{{ log.xxyy[0].toFixed(2) }}, {{ log.xxyy[1].toFixed(2) }}]</span>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
       <div v-else>
-        <p>{{ orignalData }}</p>
+        <p>{{ originalData }}</p>
       </div>
     </div>
   </main>
@@ -105,7 +126,19 @@ interface GamepadInfo {
   buttons: Record<string, ButtonData>;
 }
 
-const orignalData = ref<string>("Loading...");
+interface PollingRateResult {
+  polling_rate_avg: number;
+  polling_rate_min: number;
+  polling_rate_max: number;
+  drop_rate: number;
+}
+
+interface PollingRateLog {
+  timestamp: number;
+  xxyy: [number, number];
+}
+
+const originalData = ref<string>("Loading...");
 const gamepads = ref<Record<string, GamepadInfo>>({});
 const selectedGamepadId = ref<string | null>(null);
 
@@ -122,6 +155,9 @@ const fixedButtonOrder = [
 const selectedGamepad = computed(() => {
   return selectedGamepadId.value ? gamepads.value[selectedGamepadId.value] : null;
 });
+
+const pollingRateData = ref<PollingRateResult | null>(null);
+const pollingRateLogs = ref<PollingRateLog[]>([]);
 
 function startUpdate() {
   invoke("start_update_thread").catch((error) => {
@@ -145,9 +181,36 @@ async function fetchGamepads() {
   }
 }
 
+async function startRecordingPollingRate() {
+  try {
+    // 调用后端方法开始记录polling rate log
+    await invoke("record_polling_rate", { user_id: 0, log_size: 1000 });
+    const data = await invoke<PollingRateResult>("get_polling_rate");
+    pollingRateData.value = data;
+  } catch (error) {
+    console.error("Failed to record polling rate log:", error);
+  }
+}
+
+async function fetchLogs() {
+  try {
+    listen("polling_rate_log", (event) => {
+      console.log(event.payload);
+      pollingRateLogs.value = event.payload as PollingRateLog[];
+    });
+  } catch (error) {
+    console.error("Failed to fetch polling rate logs:", error);
+  }
+}
+
+function formatTimestamp(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString();
+}
+
 onMounted(() => {
-  startUpdate();
   fetchGamepads();
+  fetchLogs();
+  startUpdate();
 });
 </script>
 
@@ -186,7 +249,7 @@ onMounted(() => {
 
 .buttons-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr); /* 每行显示4个按键 */
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
   margin-bottom: 20px;
 }
@@ -202,13 +265,13 @@ onMounted(() => {
 }
 
 .progress-container {
-  width: 8px; /* 固定宽度 */
+  width: 8px;
   height: 40px;
   margin-right: 8px;
   position: relative;
   display: flex;
   align-items: flex-end;
-  flex-shrink: 0; /* 禁止缩小 */
+  flex-shrink: 0;
 }
 
 .vertical-progress {
@@ -242,7 +305,7 @@ onMounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 60px; /* 限制显示长度 */
+  max-width: 60px;
 }
 
 .button-value {
@@ -254,25 +317,71 @@ onMounted(() => {
   flex: 1;
 }
 
-.axes-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-  margin-bottom: 20px;
-}
-
-.axis-item {
-  background: #f9f9f9;
-  padding: 8px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 0.9em;
-}
-
 .joystick-group {
   display: flex;
   justify-content: center;
   gap: 20px;
   margin-top: 20px;
+}
+
+.polling-rate-area {
+  margin-top: 20px;
+  text-align: center;
+}
+
+.polling-rate-area button {
+  padding: 10px 20px;
+  font-size: 1em;
+  cursor: pointer;
+  background-color: #42b983;
+  color: white;
+  border: none;
+  border-radius: 5px;
+}
+
+.polling-rate-data {
+  margin-top: 10px;
+  background: #f9f9f9;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+}
+
+.log-area {
+  margin-top: 20px;
+  background-color: #2c3e50;
+  color: #ecf0f1;
+  padding: 10px;
+  border-radius: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.log-area h3 {
+  margin-bottom: 10px;
+  font-size: 1em;
+}
+
+.log-list {
+  font-size: 0.8em;
+}
+
+.log-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid #34495e;
+}
+
+.log-item:last-child {
+  border-bottom: none;
+}
+
+.log-timestamp {
+  color: #bdc3c7;
+}
+
+.log-data {
+  color: #ecf0f1;
 }
 </style>
