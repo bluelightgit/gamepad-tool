@@ -16,8 +16,9 @@
         <div v-if="selectedGamepad" class="gamepad-info">
           <h2>{{ selectedGamepad.name }}</h2>
           <p>Power Info: {{ selectedGamepad.power_info }}</p>
-          <!-- <p>Vendor ID: {{ selectedGamepad.vendor_id }}</p>
-          <p>Product ID: {{ selectedGamepad.product_id }}</p> -->
+          <p>Vendor ID: {{ selectedGamepad.vendor_id }}</p>
+          <p>Product ID: {{ selectedGamepad.product_id }}</p>
+          <p>GUID: {{ selectedGamepad.guid }}</p>
 
           <div class="layout-container">
             <!-- 按键区域 -->
@@ -62,39 +63,38 @@
                 />
               </div>
 
-              <!-- 记录polling rate log按钮和结果显示区域 -->
+            </div>
+            
               <div class="polling-rate-area">
-                <button @click="startRecordingPollingRate">Record</button>
-                <div v-if="pollingRateData" class="polling-rate-data">
-                  <p>Average: {{ pollingRateData.polling_rate_avg.toFixed(2) }} ms</p>
-                  <p>Minimum: {{ pollingRateData.polling_rate_min.toFixed(2) }} ms</p>
-                  <p>Maximum: {{ pollingRateData.polling_rate_max.toFixed(2) }} ms</p>
-                  <p>Drop Rate: {{ pollingRateData.drop_rate.toFixed(2) }} %</p>
+                <div v-if="selectedPollingRateData" class="polling-rate-data">
+                  <p>Average: {{ selectedPollingRateData.polling_rate_avg.toFixed(2) }} Hz</p>
+                  <p>Minimum: {{ selectedPollingRateData.polling_rate_min.toFixed(2) }} Hz</p>
+                  <p>Maximum: {{ selectedPollingRateData.polling_rate_max.toFixed(2) }} Hz</p>
+                  <p>avg_interval: {{ selectedPollingRateData.avg_interval.toFixed(2) }} ms</p>
                 </div>
               </div>
-            </div>
           </div>
 
-          <!-- 右下角显示polling rate log的区域 -->
-          <div class="log-area">
+          <!-- <div class="log-area">
             <h3>Polling Rate Logs</h3>
             <div class="log-list">
               <div
-                v-for="(log, index) in pollingRateLogs"
+                v-for="(log, index) in selectedPollingRateLogs || []"
                 :key="index"
                 class="log-item"
               >
                 <span class="log-timestamp">{{ formatTimestamp(log.timestamp) }}</span>
-                <span class="log-data">[{{ log.xxyy[0].toFixed(2) }}, {{ log.xxyy[1].toFixed(2) }}]</span>
+                <span class="log-data">[{{ log.xxyy[0].toFixed(2) }}, {{ log.xxyy[1].toFixed(2) }}, 
+                  {{ log.xxyy[2].toFixed(2) }}, {{ log.xxyy[3].toFixed(2) }}]</span>
               </div>
             </div>
-          </div>
+          </div> -->
         </div>
       </div>
 
-      <div v-else>
+      <!-- <div v-else>
         <p>{{ originalData }}</p>
-      </div>
+      </div> -->
     </div>
   </main>
 </template>
@@ -121,6 +121,7 @@ interface GamepadInfo {
   name: string;
   vendor_id?: number;
   product_id?: number;
+  guid: string;
   power_info: string;
   axes: Record<string, AxisData>;
   buttons: Record<string, ButtonData>;
@@ -130,15 +131,16 @@ interface PollingRateResult {
   polling_rate_avg: number;
   polling_rate_min: number;
   polling_rate_max: number;
+  avg_interval: number;
   drop_rate: number;
 }
 
 interface PollingRateLog {
   timestamp: number;
-  xxyy: [number, number];
+  xxyy: [number, number, number, number];
 }
 
-const originalData = ref<string>("Loading...");
+// const originalData = ref<string>("Loading...");
 const gamepads = ref<Record<string, GamepadInfo>>({});
 const selectedGamepadId = ref<string | null>(null);
 
@@ -156,14 +158,20 @@ const selectedGamepad = computed(() => {
   return selectedGamepadId.value ? gamepads.value[selectedGamepadId.value] : null;
 });
 
-const pollingRateData = ref<PollingRateResult | null>(null);
-const pollingRateLogs = ref<PollingRateLog[]>([]);
+const pollingRateData = ref<Record<string, PollingRateResult | null>>({});
+const selectedPollingRateData = computed(() => {
+  return selectedGamepadId.value ? pollingRateData.value[selectedGamepadId.value] : null;
+});
+const pollingRateLogs = ref<Record<string, PollingRateLog[]>>({});
+const selectedPollingRateLogs = computed(() => {
+  return selectedGamepadId.value ? pollingRateLogs.value[selectedGamepadId.value] : null;
+});
 
-function startUpdate() {
-  invoke("start_update_thread").catch((error) => {
-    console.error("Failed to start update:", error);
-  });
-}
+// function startUpdate() {
+//   invoke("start_update_thread").catch((error) => {
+//     console.error("Failed to start update:", error);
+//   });
+// }
 
 async function fetchGamepads() {
   try {
@@ -181,36 +189,50 @@ async function fetchGamepads() {
   }
 }
 
-async function startRecordingPollingRate() {
-  try {
-    // 调用后端方法开始记录polling rate log
-    await invoke("record_polling_rate", { user_id: 0, log_size: 1000 });
-    const data = await invoke<PollingRateResult>("get_polling_rate");
-    pollingRateData.value = data;
-  } catch (error) {
-    console.error("Failed to record polling rate log:", error);
-  }
-}
-
 async function fetchLogs() {
   try {
     listen("polling_rate_log", (event) => {
       console.log(event.payload);
-      pollingRateLogs.value = event.payload as PollingRateLog[];
+      pollingRateLogs.value = event.payload as Record<string, PollingRateLog[]>;
     });
   } catch (error) {
     console.error("Failed to fetch polling rate logs:", error);
   }
 }
 
+async function fetchPollingRate() {
+  try {
+    listen("polling_rate_result", (event) => {
+      console.log(event.payload);
+      pollingRateData.value = event.payload as Record<string, PollingRateResult>;
+    });
+  } catch (error) {
+    console.error("Failed to fetch polling rate:", error);
+  }
+}
+
+// async function setFrameRate(frameRate:number) {
+//   try {
+//     await invoke("set_frame_rate", { frameRate: frameRate });
+//   } catch (error) {
+//     console.error("Failed to set frame rate:", error);
+//   }
+// }
+
 function formatTimestamp(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString();
 }
 
-onMounted(() => {
-  fetchGamepads();
-  fetchLogs();
-  startUpdate();
+onMounted(async () => {
+  try {
+    await Promise.all([
+      fetchGamepads(),
+      fetchLogs(),
+      fetchPollingRate()
+    ]);
+  } catch (error) {
+    console.error("Failed to call all methods:", error);
+  }
 });
 </script>
 
