@@ -3,7 +3,7 @@
     <div class="gamepad-test">
       <h1>Gamepad Test</h1>
 
-      <div v-if="Object.keys(gamepads).length > 0">
+      <div v-if="hasGamepads">
         <div class="selector">
           <label for="gamepad-select">Select Gamepad:</label>
           <select id="gamepad-select" v-model="selectedGamepadId">
@@ -26,23 +26,23 @@
               <h3>Buttons</h3>
               <div class="buttons-grid">
                 <div
-                  v-for="buttonKey in fixedButtonOrder"
-                  :key="buttonKey"
-                  class="button-item"
+                    v-for="buttonKey in fixedButtonOrder"
+                    :key="buttonKey"
+                    class="button-item"
                 >
                   <div class="progress-container">
                     <progress
-                      :value="selectedGamepad.buttons[buttonKey]?.value || 0"
-                      max="1"
-                      class="vertical-progress"
+                        :value="getButtonValue(buttonKey)"
+                        max="1"
+                        class="vertical-progress"
                     ></progress>
                   </div>
                   <div class="button-info">
                     <div class="button-name">
-                      {{ selectedGamepad.buttons[buttonKey]?.button || buttonKey }}
+                      {{ getButtonName(buttonKey) }}
                     </div>
                     <div class="button-value">
-                      {{ (selectedGamepad.buttons[buttonKey]?.value || 0).toFixed(2) }}
+                      {{ formatButtonValue(buttonKey) }}
                     </div>
                   </div>
                 </div>
@@ -54,56 +54,36 @@
               <h3>Joysticks</h3>
               <div class="joystick-group">
                 <JoystickVisualization
-                  :axisX="selectedGamepad.axes['LeftThumbX']?.value || 0"
-                  :axisY="selectedGamepad.axes['LeftThumbY']?.value || 0"
+                    :axisX="getAxisValue('LeftThumbX')"
+                    :axisY="getAxisValue('LeftThumbY')"
                 />
                 <JoystickVisualization
-                  :axisX="selectedGamepad.axes['RightThumbX']?.value || 0"
-                  :axisY="selectedGamepad.axes['RightThumbY']?.value || 0"
+                    :axisX="getAxisValue('RightThumbX')"
+                    :axisY="getAxisValue('RightThumbY')"
                 />
               </div>
-
             </div>
-            
-              <div class="polling-rate-area">
-                <div v-if="selectedPollingRateData" class="polling-rate-data">
-                  <p>Average: {{ selectedPollingRateData.polling_rate_avg.toFixed(2) }} Hz</p>
-                  <p>Minimum: {{ selectedPollingRateData.polling_rate_min.toFixed(2) }} Hz</p>
-                  <p>Maximum: {{ selectedPollingRateData.polling_rate_max.toFixed(2) }} Hz</p>
-                  <p>avg_interval: {{ selectedPollingRateData.avg_interval.toFixed(2) }} ms</p>
-                </div>
+
+            <!-- 轮询率数据 -->
+            <div class="polling-rate-area">
+              <div v-if="selectedPollingRateData" class="polling-rate-data">
+                <p>Avg: {{ formatNumber(selectedPollingRateData.polling_rate_avg) }} Hz</p>
+                <p>Min: {{ formatNumber(selectedPollingRateData.polling_rate_min) }} Hz</p>
+                <p>Max: {{ formatNumber(selectedPollingRateData.polling_rate_max) }} Hz</p>
+                <p>Avg Interval: {{ formatNumber(selectedPollingRateData.avg_interval) }} ms</p>
               </div>
+            </div>
           </div>
-
-          <!-- <div class="log-area">
-            <h3>Polling Rate Logs</h3>
-            <div class="log-list">
-              <div
-                v-for="(log, index) in selectedPollingRateLogs || []"
-                :key="index"
-                class="log-item"
-              >
-                <span class="log-timestamp">{{ formatTimestamp(log.timestamp) }}</span>
-                <span class="log-data">[{{ log.xxyy[0].toFixed(2) }}, {{ log.xxyy[1].toFixed(2) }}, 
-                  {{ log.xxyy[2].toFixed(2) }}, {{ log.xxyy[3].toFixed(2) }}]</span>
-              </div>
-            </div>
-          </div> -->
         </div>
       </div>
-
-      <!-- <div v-else>
-        <p>{{ originalData }}</p>
-      </div> -->
     </div>
   </main>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from "vue";
+import {ref, onMounted, computed} from "vue";
 import { listen } from "@tauri-apps/api/event";
 import JoystickVisualization from "../components/JoystickVisualization.vue";
-import { invoke } from "@tauri-apps/api/core";
 
 interface AxisData {
   axis: string;
@@ -143,8 +123,8 @@ interface PollingRateLog {
 // const originalData = ref<string>("Loading...");
 const gamepads = ref<Record<string, GamepadInfo>>({});
 const selectedGamepadId = ref<string | null>(null);
+const pollingRateData = ref<Record<string, PollingRateResult | null>>({});
 
-// 定义固定的按键顺序
 const fixedButtonOrder = [
   "A", "B", "X", "Y", // 主按钮
   "LeftShoulder", "RightShoulder", // 肩键
@@ -154,86 +134,35 @@ const fixedButtonOrder = [
   "DPadUp", "DPadDown", "DPadLeft", "DPadRight" // 方向键
 ];
 
-const selectedGamepad = computed(() => {
-  return selectedGamepadId.value ? gamepads.value[selectedGamepadId.value] : null;
-});
+const hasGamepads = computed(() => Object.keys(gamepads.value).length > 0);
+const selectedGamepad = computed(() => selectedGamepadId.value ? gamepads.value[selectedGamepadId.value] : null);
+const selectedPollingRateData = computed(() => selectedGamepadId.value ? pollingRateData.value[selectedGamepadId.value] : null);
 
-const pollingRateData = ref<Record<string, PollingRateResult | null>>({});
-const selectedPollingRateData = computed(() => {
-  return selectedGamepadId.value ? pollingRateData.value[selectedGamepadId.value] : null;
-});
-const pollingRateLogs = ref<Record<string, PollingRateLog[]>>({});
-const selectedPollingRateLogs = computed(() => {
-  return selectedGamepadId.value ? pollingRateLogs.value[selectedGamepadId.value] : null;
-});
+const getButtonValue = (buttonKey: string) => selectedGamepad.value?.buttons[buttonKey]?.value || 0;
+const getButtonName = (buttonKey: string) => selectedGamepad.value?.buttons[buttonKey]?.button || buttonKey;
+const formatButtonValue = (buttonKey: string) => getButtonValue(buttonKey).toFixed(2);
+const getAxisValue = (axisKey: string) => selectedGamepad.value?.axes[axisKey]?.value || 0;
+const formatNumber = (value: number) => value.toFixed(2);
 
-// function startUpdate() {
-//   invoke("start_update_thread").catch((error) => {
-//     console.error("Failed to start update:", error);
-//   });
-// }
+onMounted(async () => {
+  await Promise.all([fetchGamepads(),
+    fetchPollingRate()]);
+});
 
 async function fetchGamepads() {
-  try {
-    listen("gamepads_info", (event) => {
-      console.log(event.payload);
-      const result = event.payload;
-      gamepads.value = result as Record<string, GamepadInfo>;
-    });
-
-    if (!selectedGamepadId.value && Object.keys(gamepads.value).length > 0) {
+  listen("gamepads_info", (event) => {
+    gamepads.value = event.payload as Record<string, GamepadInfo>;
+    if (!selectedGamepadId.value && hasGamepads.value) {
       selectedGamepadId.value = Object.keys(gamepads.value)[0];
     }
-  } catch (error) {
-    console.error("Failed to fetch gamepads:", error);
-  }
-}
-
-async function fetchLogs() {
-  try {
-    listen("polling_rate_log", (event) => {
-      console.log(event.payload);
-      pollingRateLogs.value = event.payload as Record<string, PollingRateLog[]>;
-    });
-  } catch (error) {
-    console.error("Failed to fetch polling rate logs:", error);
-  }
+  });
 }
 
 async function fetchPollingRate() {
-  try {
-    listen("polling_rate_result", (event) => {
-      console.log(event.payload);
-      pollingRateData.value = event.payload as Record<string, PollingRateResult>;
-    });
-  } catch (error) {
-    console.error("Failed to fetch polling rate:", error);
-  }
+  listen("polling_rate_result", (event) => {
+    pollingRateData.value = event.payload as Record<string, PollingRateResult>;
+  });
 }
-
-// async function setFrameRate(frameRate:number) {
-//   try {
-//     await invoke("set_frame_rate", { frameRate: frameRate });
-//   } catch (error) {
-//     console.error("Failed to set frame rate:", error);
-//   }
-// }
-
-function formatTimestamp(timestamp: number): string {
-  return new Date(timestamp).toLocaleTimeString();
-}
-
-onMounted(async () => {
-  try {
-    await Promise.all([
-      fetchGamepads(),
-      fetchLogs(),
-      fetchPollingRate()
-    ]);
-  } catch (error) {
-    console.error("Failed to call all methods:", error);
-  }
-});
 </script>
 
 <style scoped>
@@ -246,7 +175,7 @@ onMounted(async () => {
 }
 
 .gamepad-test {
-  max-width: 700px;
+  max-width: 1200px;
   margin: 20px auto;
   text-align: center;
   border: 1px solid #ddd;

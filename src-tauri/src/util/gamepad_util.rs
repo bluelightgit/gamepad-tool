@@ -2,6 +2,7 @@ use std::{collections::{HashMap, HashSet}, sync::Arc};
 use std::sync::Mutex;
 use std::thread::JoinHandle;
 use std::time::Duration;
+use chrono::format::parse_and_remainder;
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 use windows::Win32::UI::Input::XboxController::{
@@ -14,11 +15,13 @@ use windows::Gaming::Input::{
 use uuid::Uuid;
 
 const DEFAULT_FRAME_RATE: u32 = 60;
-const MAX_LOG_SIZE: usize = 3000;
+const MAX_LOG_SIZE: usize = 1000;
 const POLLING_RATE_RETRIEVE_INTERVAL: u64 = 1; // ms
 const SDL_HARDWARE_BUS_USB: u32 = 0x03;
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct GamepadState {
+    xinput_state: XINPUT_STATE,
+    battery_state: XINPUT_BATTERY_INFORMATION,
     frame_rate: u32,
     cur_gamepads: HashSet<u32>,
     polling_rate_log: HashMap<u32, Vec<PollingRateLog>>, // user_index, (timestamp, (x, y))
@@ -27,7 +30,9 @@ pub struct GamepadState {
 
 impl GamepadState {
     pub fn new() -> Self {
-        GamepadState { 
+        GamepadState {
+            xinput_state: XINPUT_STATE::default(),
+            battery_state: XINPUT_BATTERY_INFORMATION::default(),
             frame_rate: 1000 / DEFAULT_FRAME_RATE,
             cur_gamepads: HashSet::new(),
             polling_rate_log: HashMap::new(),
@@ -44,7 +49,7 @@ impl GamepadState {
         &self,
         user_index: u32,   
     ) -> GamepadInfo {
-        let mut state = XINPUT_STATE::default();
+        let mut state = self.xinput_state;
         unsafe { 
             XInputGetState(user_index, &mut state) 
         };
@@ -102,7 +107,7 @@ impl GamepadState {
         .collect::<HashMap<String, AxisData>>();
 
         // battery
-        let mut battery_info = XINPUT_BATTERY_INFORMATION::default();
+        let mut battery_info = self.battery_state;
         unsafe {
             XInputGetBatteryInformation(user_index, BATTERY_DEVTYPE(0u8), &mut battery_info);
         }
@@ -142,7 +147,7 @@ impl GamepadState {
         // 构造 GamepadInfo
         GamepadInfo {
             id: user_index,
-            name: name,
+            name,
             vendor_id: Some(vendor_id),
             product_id: Some(product_id),
             guid: uuid.to_string(),
@@ -161,28 +166,30 @@ impl GamepadState {
 
     pub fn get_xinput_gamepads(&mut self) -> HashMap<u32, GamepadInfo> {
         let mut infos: HashMap<u32, GamepadInfo> = HashMap::new();
-        for user_index in 0..XUSER_MAX_COUNT {
-            let mut state: XINPUT_STATE = Default::default();
-
-            // 获取控制器状态
-            let result = unsafe { XInputGetState(user_index, &mut state) };
-
-            // 如果控制器未连接，跳过
-            if result != 0 {
-                continue;
-            }
-
-            let mut capabilities: XINPUT_CAPABILITIES = Default::default();
-            let result = unsafe { XInputGetCapabilities(user_index, XINPUT_FLAG_ALL, &mut capabilities) };
-
+        for user_index in self.get_cur_gamepads().iter() {
             // 构造 GamepadInfo
-            let gamepad_info = self.from_xinput_state(user_index);
-            self.cur_gamepads.insert(user_index);
+            let gamepad_info = self.from_xinput_state(*user_index);
+            self.cur_gamepads.insert(*user_index);
             // self.record_polling_rate(user_index, true);
             infos.insert(gamepad_info.id, gamepad_info);
         }
 
         infos
+    }
+
+    pub fn get_cur_gamepads(&mut self) -> HashSet<u32> {
+        for user_index in 0..XUSER_MAX_COUNT {
+            let mut state = self.xinput_state;
+
+            let result = unsafe { XInputGetState(user_index, &mut state) };
+
+            if result != 0 {
+                continue;
+            }
+
+            self.cur_gamepads.insert(user_index);
+        }
+        self.cur_gamepads.clone()
     }
 
     pub fn get_polling_rate(&mut self, user_index: u32) -> PollingRateResult {
@@ -222,7 +229,7 @@ impl GamepadState {
 
     pub fn record_polling_rate(&mut self, user_index: u32, is_filter_duplicate: bool) -> PollingRateLog {
         let logs = self.polling_rate_log.entry(user_index).or_insert(Vec::new());
-        let mut state = XINPUT_STATE::default();
+        let mut state = self.xinput_state;
         unsafe { XInputGetState(user_index, &mut state) };
         let gamepad = state.Gamepad;
         let xl = gamepad.sThumbLX;
@@ -312,18 +319,22 @@ impl GamepadInfo {
 #[tauri::command]
 pub fn start_update_thread(app_handle: tauri::AppHandle, state: Arc<Mutex<GamepadState>>) -> JoinHandle<()> {
     let handle = std::thread::spawn(move || {
-        let mut last_emit_time = chrono::Utc::now().timestamp_millis();
+        let mut last_emit_time = chrono::Utc::now().timestamp_micros();
+        let mut prev_axes: HashMap<u32, (f64, f64, f64, f64)> = HashMap::new();
         loop {
             let mut gamepad_state = state.lock().unwrap();
             let gamepads = gamepad_state.get_xinput_gamepads();
-            app_handle
-                .emit("gamepads_info", gamepads.clone()).ok()
-                .expect("failed to emit gamepads_info");
+            // app_handle
+            //     .emit("gamepads_info", gamepads.clone()).ok()
+            //     .expect("failed to emit gamepads_info");
             let gamepads_vec: Vec<u32> = gamepad_state.cur_gamepads.iter().cloned().collect();
             for i in gamepads_vec.iter() {
                 gamepad_state.record_polling_rate(*i, true);
             }
-            if last_emit_time - chrono::Utc::now().timestamp_micros() >= 100_i64 {
+            if chrono::Utc::now().timestamp_micros() - last_emit_time >= 10000_i64 {
+                app_handle
+                    .emit("gamepads_info", gamepads.clone()).ok()
+                    .expect("failed to emit gamepads_info");
                 app_handle
                     .emit("polling_rate_log", gamepad_state.polling_rate_log.clone()).ok()
                     .expect("failed to emit polling_rate_log");
@@ -332,7 +343,12 @@ pub fn start_update_thread(app_handle: tauri::AppHandle, state: Arc<Mutex<Gamepa
                     .expect("failed to emit polling_rate_result");
                 last_emit_time = chrono::Utc::now().timestamp_millis();
             }
-
+            let now_axes = gamepads.iter().map(|(k, v)|
+                (*k, (v.axes.get("LeftThumbX").unwrap().value, v.axes.get("LeftThumbY").unwrap().value, v.axes.get("RightThumbX").unwrap().value, v.axes.get("RightThumbY").unwrap().value))).collect();
+            if (now_axes != prev_axes) {
+                prev_axes = now_axes;
+                println!("{:?}", prev_axes);
+            }
             std::thread::sleep(Duration::from_micros(POLLING_RATE_RETRIEVE_INTERVAL));
         }
     });

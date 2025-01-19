@@ -9,9 +9,9 @@ mod util {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
-        .manage(
-            Arc::new(Mutex::new(GamepadState::new()))
-        )
+        // .manage(
+        //     Arc::new(Mutex::new(GamepadState::new()))
+        // )
         .plugin(tauri_plugin_opener::init())
         // .setup(move |app| {
         //     app.listen("polling_rate_log", |event| {
@@ -30,7 +30,8 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running tauri application");
     let app_handle = app.handle().clone();
-    let state = app_handle.state::<Arc<Mutex<GamepadState>>>().clone();
+    // let state = app_handle.state::<Arc<Mutex<GamepadState>>>().clone();
+    let state = Arc::new(Mutex::new(GamepadState::new()));
     let mutex_state = Arc::clone(&state);
     let update_thread = util::gamepad_util::start_update_thread(app_handle, mutex_state);
     app.run(|_, _: tauri::RunEvent| {

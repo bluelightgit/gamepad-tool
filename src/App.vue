@@ -5,9 +5,9 @@ import GamepadTestPage from "./views/GamepadTestPage.vue";
 </script>
 
 <template>
-  <div class="container">
+<!--  <div class="container">-->
     <GamepadTestPage/>
-  </div>
+<!--  </div>-->
 </template>
 
 <style scoped>
