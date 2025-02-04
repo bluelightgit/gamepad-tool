@@ -2,41 +2,42 @@ use std::{collections::{HashMap, HashSet}, sync::Arc};
 use std::sync::Mutex;
 use std::thread::JoinHandle;
 use std::time::Duration;
-use chrono::format::parse_and_remainder;
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
-use windows::Win32::UI::Input::XboxController::{
-    XInputGetBatteryInformation, XInputGetCapabilities, XInputGetState, BATTERY_DEVTYPE, BATTERY_LEVEL_EMPTY, BATTERY_LEVEL_FULL, BATTERY_LEVEL_LOW, BATTERY_LEVEL_MEDIUM, XINPUT_BATTERY_INFORMATION, XINPUT_CAPABILITIES, XINPUT_FLAG_ALL, XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B, XINPUT_GAMEPAD_BACK, XINPUT_GAMEPAD_BUTTON_FLAGS, XINPUT_GAMEPAD_DPAD_DOWN, XINPUT_GAMEPAD_DPAD_LEFT, XINPUT_GAMEPAD_DPAD_RIGHT, XINPUT_GAMEPAD_DPAD_UP, XINPUT_GAMEPAD_LEFT_SHOULDER, XINPUT_GAMEPAD_LEFT_THUMB, XINPUT_GAMEPAD_RIGHT_SHOULDER, XINPUT_GAMEPAD_RIGHT_THUMB, XINPUT_GAMEPAD_START, XINPUT_GAMEPAD_X, XINPUT_GAMEPAD_Y, XINPUT_STATE, XUSER_MAX_COUNT
-};
+// use windows::Win32::UI::Input::XboxController::{
+//     XInputGetBatteryInformation, XInputGetState, BATTERY_DEVTYPE, BATTERY_LEVEL_EMPTY, BATTERY_LEVEL_FULL, BATTERY_LEVEL_LOW, BATTERY_LEVEL_MEDIUM, XINPUT_BATTERY_INFORMATION, XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B, XINPUT_GAMEPAD_BACK, XINPUT_GAMEPAD_DPAD_DOWN, XINPUT_GAMEPAD_DPAD_LEFT, XINPUT_GAMEPAD_DPAD_RIGHT, XINPUT_GAMEPAD_DPAD_UP, XINPUT_GAMEPAD_LEFT_SHOULDER, XINPUT_GAMEPAD_LEFT_THUMB, XINPUT_GAMEPAD_RIGHT_SHOULDER, XINPUT_GAMEPAD_RIGHT_THUMB, XINPUT_GAMEPAD_START, XINPUT_GAMEPAD_X, XINPUT_GAMEPAD_Y, XINPUT_STATE, XUSER_MAX_COUNT
+// };
 use windows::Gaming::Input::{
     // GameControllerSwitchPosition, Gamepad as WgiGamepad, GamepadButtons, GamepadReading,
     RawGameController,
 };
 use uuid::Uuid;
+use crate::util::math_util::MathUtil;
+use crate::util::input_wrapper::{RawInput, XInput};
 
 const DEFAULT_FRAME_RATE: u32 = 60;
-const MAX_LOG_SIZE: usize = 1000;
+const MAX_LOG_SIZE: usize = 5000;
 const POLLING_RATE_RETRIEVE_INTERVAL: u64 = 1; // ms
 const SDL_HARDWARE_BUS_USB: u32 = 0x03;
 #[derive(Debug, Clone)]
 pub struct GamepadState {
-    xinput_state: XINPUT_STATE,
-    battery_state: XINPUT_BATTERY_INFORMATION,
+    xinput_state: XInput,
     frame_rate: u32,
     cur_gamepads: HashSet<u32>,
     polling_rate_log: HashMap<u32, Vec<PollingRateLog>>, // user_index, (timestamp, (x, y))
     polling_rate_result: HashMap<u32, PollingRateResult>, // user_index, (avg, min, max)
+    math_utils: HashMap<u32, MathUtil>,
 }
 
 impl GamepadState {
     pub fn new() -> Self {
         GamepadState {
-            xinput_state: XINPUT_STATE::default(),
-            battery_state: XINPUT_BATTERY_INFORMATION::default(),
+            xinput_state: XInput::new(),
             frame_rate: 1000 / DEFAULT_FRAME_RATE,
             cur_gamepads: HashSet::new(),
             polling_rate_log: HashMap::new(),
             polling_rate_result: HashMap::new(),
+            math_utils: HashMap::new(),
         }
     }
 
@@ -46,71 +47,32 @@ impl GamepadState {
 
     /// 从 XInput 控制器状态构造 GamepadInfo
     pub fn from_xinput_state(
-        &self,
+        &mut self,
         user_index: u32,   
     ) -> GamepadInfo {
-        let mut state = self.xinput_state;
-        unsafe { 
-            XInputGetState(user_index, &mut state) 
-        };
-        let gamepad = state.Gamepad;
+        self.xinput_state.update(user_index).unwrap();
+        let gamepad = self.xinput_state.get_controller(user_index).unwrap();
         // 映射按钮
-        let buttons = [
-            ("A", if gamepad.wButtons.contains(XINPUT_GAMEPAD_A) { 1.0 } else { 0.0 }),
-            ("B", if gamepad.wButtons.contains(XINPUT_GAMEPAD_B) { 1.0 } else { 0.0 }),
-            ("X", if gamepad.wButtons.contains(XINPUT_GAMEPAD_X) { 1.0 } else { 0.0 }),
-            ("Y", if gamepad.wButtons.contains(XINPUT_GAMEPAD_Y) { 1.0 } else { 0.0 }),
-            ("DPadUp", if gamepad.wButtons.contains(XINPUT_GAMEPAD_DPAD_UP) { 1.0 } else { 0.0 }),
-            ("DPadDown", if gamepad.wButtons.contains(XINPUT_GAMEPAD_DPAD_DOWN) { 1.0 } else { 0.0 }),
-            ("DPadLeft", if gamepad.wButtons.contains(XINPUT_GAMEPAD_DPAD_LEFT) { 1.0 } else { 0.0 }),
-            ("DPadRight", if gamepad.wButtons.contains(XINPUT_GAMEPAD_DPAD_RIGHT) { 1.0 } else { 0.0 }),
-            ("LeftShoulder", if gamepad.wButtons.contains(XINPUT_GAMEPAD_LEFT_SHOULDER) { 1.0 } else { 0.0 }),
-            ("RightShoulder", if gamepad.wButtons.contains(XINPUT_GAMEPAD_RIGHT_SHOULDER) { 1.0 } else { 0.0 }),
-            ("LeftThumb", if gamepad.wButtons.contains(XINPUT_GAMEPAD_LEFT_THUMB) { 1.0 } else { 0.0 }),
-            ("RightThumb", if gamepad.wButtons.contains(XINPUT_GAMEPAD_RIGHT_THUMB) { 1.0 } else { 0.0 }),
-            ("Start", if gamepad.wButtons.contains(XINPUT_GAMEPAD_START) { 1.0 } else { 0.0 }),
-            ("Back", if gamepad.wButtons.contains(XINPUT_GAMEPAD_BACK) { 1.0 } else { 0.0 }),
-            ("LeftTrigger", gamepad.bLeftTrigger as f64 / 255.0),
-            ("RightTrigger", gamepad.bRightTrigger as f64 / 255.0),
-        ]
-        .iter()
-        .map(|(name, value)| {
+        let buttons = gamepad.buttons.iter().map(|(k, v)| {
             (
-                name.to_string(),
+                k.to_string(),
                 ButtonData {
-                    button: name.to_string(),
-                    is_pressed: *value > 0.0,
-                    value: value.clone(),
+                    button: k.to_string(),
+                    is_pressed: v.is_pressed,
+                    value: v.value as f64 / 255.0f64,
                 },
             )
-        })
-        .collect::<HashMap<String, ButtonData>>();
+        }).collect::<HashMap<String, ButtonData>>();
         // 映射轴
-        let axes = [
-            ("LeftTrigger", gamepad.bLeftTrigger as f64 / 255.0),
-            ("RightTrigger", gamepad.bRightTrigger as f64 / 255.0),
-            ("LeftThumbX", gamepad.sThumbLX as f64 / 32767.0),
-            ("LeftThumbY", gamepad.sThumbLY as f64 / 32767.0),
-            ("RightThumbX", gamepad.sThumbRX as f64 / 32767.0),
-            ("RightThumbY", gamepad.sThumbRY as f64 / 32767.0),
-        ]
-        .iter()
-        .map(|(name, value)| {
+        let axes = gamepad.axes.iter().map(|(k, v)| {
             (
-                name.to_string(),
+                k.to_string(),
                 AxisData {
-                    axis: name.to_string(),
-                    value: *value,
+                    axis: k.to_string(),
+                    value: v.value as f64 / 32767.0f64,
                 },
             )
-        })
-        .collect::<HashMap<String, AxisData>>();
-
-        // battery
-        let mut battery_info = self.battery_state;
-        unsafe {
-            XInputGetBatteryInformation(user_index, BATTERY_DEVTYPE(0u8), &mut battery_info);
-        }
+        }).collect::<HashMap<String, AxisData>>();
         let mut vendor_id = 0;
         let mut product_id = 0;
         let mut name = format!("Xinput Controller {}", user_index);
@@ -151,14 +113,7 @@ impl GamepadState {
             vendor_id: Some(vendor_id),
             product_id: Some(product_id),
             guid: uuid.to_string(),
-            power_info: 
-                match battery_info.BatteryLevel {
-                    BATTERY_LEVEL_EMPTY => "Empty".to_string(),
-                    BATTERY_LEVEL_LOW => "Low".to_string(),
-                    BATTERY_LEVEL_MEDIUM => "Medium".to_string(),
-                    BATTERY_LEVEL_FULL => "Full".to_string(),
-                    _ => "Unknown".to_string(),
-                },
+            power_info: gamepad.power_info,
             axes,
             buttons,
         }
@@ -178,18 +133,7 @@ impl GamepadState {
     }
 
     pub fn get_cur_gamepads(&mut self) -> HashSet<u32> {
-        for user_index in 0..XUSER_MAX_COUNT {
-            let mut state = self.xinput_state;
-
-            let result = unsafe { XInputGetState(user_index, &mut state) };
-
-            if result != 0 {
-                continue;
-            }
-
-            self.cur_gamepads.insert(user_index);
-        }
-        self.cur_gamepads.clone()
+        self.xinput_state.all_device_id().iter().cloned().collect()
     }
 
     pub fn get_polling_rate(&mut self, user_index: u32) -> PollingRateResult {
@@ -198,7 +142,7 @@ impl GamepadState {
         let mut min = u64::MAX;
         let mut max = u64::MIN;
         let mut duplicate_count = 0;
-        logs.windows(2).for_each(|pair| {
+        logs.windows(2).for_each(|pair| { 
             let log = &pair[1];
             let prev_log = &pair[0];
             let delta = log.timestamp - prev_log.timestamp;
@@ -229,17 +173,11 @@ impl GamepadState {
 
     pub fn record_polling_rate(&mut self, user_index: u32, is_filter_duplicate: bool) -> PollingRateLog {
         let logs = self.polling_rate_log.entry(user_index).or_insert(Vec::new());
-        let mut state = self.xinput_state;
-        unsafe { XInputGetState(user_index, &mut state) };
-        let gamepad = state.Gamepad;
-        let xl = gamepad.sThumbLX;
-        let yl = gamepad.sThumbLY;
-        let xr = gamepad.sThumbRX;
-        let yr = gamepad.sThumbRY;
+        self.xinput_state.update(user_index).unwrap();
 
         let log = PollingRateLog {
             timestamp: chrono::Utc::now().timestamp_micros() as u64,
-            xxyy: (xl, yl, xr, yr),
+            xxyy: self.xinput_state.get_axis_val().unwrap(),
         };
 
         if is_filter_duplicate && logs.len() > 0 && logs.last().unwrap().xxyy == log.xxyy {
@@ -345,7 +283,7 @@ pub fn start_update_thread(app_handle: tauri::AppHandle, state: Arc<Mutex<Gamepa
             }
             let now_axes = gamepads.iter().map(|(k, v)|
                 (*k, (v.axes.get("LeftThumbX").unwrap().value, v.axes.get("LeftThumbY").unwrap().value, v.axes.get("RightThumbX").unwrap().value, v.axes.get("RightThumbY").unwrap().value))).collect();
-            if (now_axes != prev_axes) {
+            if now_axes != prev_axes {
                 prev_axes = now_axes;
                 println!("{:?}", prev_axes);
             }

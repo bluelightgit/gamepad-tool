@@ -1,9 +1,11 @@
-use std::{collections::HashMap, sync::{Arc, Mutex}, thread::JoinHandle};
+use std::sync::{Arc, Mutex};
 
 use tauri::{Listener, Manager};
-use util::gamepad_util::{GamepadInfo, GamepadState, PollingRateLog};
+use util::gamepad_util::GamepadState;
 mod util {
     pub mod gamepad_util;
+    pub mod math_util;
+    pub mod input_wrapper;
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

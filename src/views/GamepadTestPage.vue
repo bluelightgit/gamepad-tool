@@ -115,11 +115,6 @@ interface PollingRateResult {
   drop_rate: number;
 }
 
-interface PollingRateLog {
-  timestamp: number;
-  xxyy: [number, number, number, number];
-}
-
 // const originalData = ref<string>("Loading...");
 const gamepads = ref<Record<string, GamepadInfo>>({});
 const selectedGamepadId = ref<string | null>(null);
