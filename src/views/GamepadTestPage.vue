@@ -71,6 +71,8 @@
                 <p>Min: {{ formatNumber(selectedPollingRateData.polling_rate_min) }} Hz</p>
                 <p>Max: {{ formatNumber(selectedPollingRateData.polling_rate_max) }} Hz</p>
                 <p>Avg Interval: {{ formatNumber(selectedPollingRateData.avg_interval) }} ms</p>
+                <p>Error(L): {{ formatNumber(selectedPollingRateData.avg_error_l) }} %</p>
+                <p>Error(R): {{ formatNumber(selectedPollingRateData.avg_error_r) }} %</p>
               </div>
             </div>
           </div>
@@ -113,6 +115,8 @@ interface PollingRateResult {
   polling_rate_max: number;
   avg_interval: number;
   drop_rate: number;
+  avg_error_r: number;
+  avg_error_l: number;
 }
 
 // const originalData = ref<string>("Loading...");
@@ -272,7 +276,7 @@ async function fetchPollingRate() {
 
 .polling-rate-area {
   margin-top: 20px;
-  text-align: center;
+  text-align: left;
 }
 
 .polling-rate-area button {
@@ -291,6 +295,7 @@ async function fetchPollingRate() {
   padding: 10px;
   border: 1px solid #ddd;
   border-radius: 6px;
+  justify-content: left;
 }
 
 .log-area {

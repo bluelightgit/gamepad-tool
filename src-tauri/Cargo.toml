@@ -27,4 +27,5 @@ chrono = "0.4.39"
 windows = { version = "0.59.0", features = ["Win32_UI_Input_XboxController", "Gaming_Input_Custom", 
             "Gaming_Input_Preview", "Foundation", "System", "Foundation_Collections"] }
 uuid = "1.11.1"
+libm = "0.2.11"
 

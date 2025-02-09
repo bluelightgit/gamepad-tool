@@ -149,10 +149,10 @@ impl RawInput<(XINPUT_STATE, XINPUT_BATTERY_INFORMATION)> for XInput {
         unsafe { XInputGetBatteryInformation(id, BATTERY_DEVTYPE(0u8), &mut state.1); }
         if result == 0 {
             self.state = state;
-            Some(state)
         } else {
-            None
+            self.state = (XINPUT_STATE::default(), XINPUT_BATTERY_INFORMATION::default());
         }
+        Some(self.state)
     }
 
     fn all_device_id(&self) -> Vec<u32> {

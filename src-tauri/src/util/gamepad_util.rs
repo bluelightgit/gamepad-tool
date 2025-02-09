@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet}, sync::Arc};
+use std::{collections::{HashMap, HashSet}, mem, sync::Arc};
 use std::sync::Mutex;
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -12,13 +12,16 @@ use windows::Gaming::Input::{
     RawGameController,
 };
 use uuid::Uuid;
+use libm::atan2;
 use crate::util::math_util::MathUtil;
 use crate::util::input_wrapper::{RawInput, XInput};
 
 const DEFAULT_FRAME_RATE: u32 = 60;
-const MAX_LOG_SIZE: usize = 5000;
-const POLLING_RATE_RETRIEVE_INTERVAL: u64 = 1; // ms
+const MAX_LOG_SIZE: usize = 1000;
+const CALCULATE_INTERVAL: usize = 100; // caluculate onece per 100 logs
+const POLLING_RATE_RETRIEVE_INTERVAL: u64 = 1; // microsecond
 const SDL_HARDWARE_BUS_USB: u32 = 0x03;
+const MAX_R: f64 = 32767.0f64; // 最大圆半径
 #[derive(Debug, Clone)]
 pub struct GamepadState {
     xinput_state: XInput,
@@ -27,6 +30,7 @@ pub struct GamepadState {
     polling_rate_log: HashMap<u32, Vec<PollingRateLog>>, // user_index, (timestamp, (x, y))
     polling_rate_result: HashMap<u32, PollingRateResult>, // user_index, (avg, min, max)
     math_utils: HashMap<u32, MathUtil>,
+    direction_bins: HashMap<u32, (HashMap<Direction, u32>, HashMap<Direction, u32>)>, // user_index, (left(direction, max_radius), right(direction, max_radius))
 }
 
 impl GamepadState {
@@ -38,6 +42,7 @@ impl GamepadState {
             polling_rate_log: HashMap::new(),
             polling_rate_result: HashMap::new(),
             math_utils: HashMap::new(),
+            direction_bins: HashMap::new(),
         }
     }
 
@@ -50,7 +55,7 @@ impl GamepadState {
         &mut self,
         user_index: u32,   
     ) -> GamepadInfo {
-        self.xinput_state.update(user_index).unwrap();
+        self.xinput_state.update(user_index);
         let gamepad = self.xinput_state.get_controller(user_index).unwrap();
         // 映射按钮
         let buttons = gamepad.buttons.iter().map(|(k, v)| {
@@ -133,70 +138,73 @@ impl GamepadState {
     }
 
     pub fn get_cur_gamepads(&mut self) -> HashSet<u32> {
-        self.xinput_state.all_device_id().iter().cloned().collect()
+        let cur: HashSet<u32> = self.xinput_state.all_device_id().iter().cloned().collect();
+        if cur != self.cur_gamepads {
+            self.cur_gamepads = cur.clone();
+            self.polling_rate_log.clear();
+            self.polling_rate_result.clear();
+            self.math_utils.clear();
+        }
+        cur
     }
 
     pub fn get_polling_rate(&mut self, user_index: u32) -> PollingRateResult {
         let logs = self.polling_rate_log.get(&user_index).unwrap();
-        let mut sum = 0.0;
-        let mut min = u64::MAX;
-        let mut max = u64::MIN;
-        let mut duplicate_count = 0;
-        logs.windows(2).for_each(|pair| { 
-            let log = &pair[1];
-            let prev_log = &pair[0];
-            let delta = log.timestamp - prev_log.timestamp;
-            sum += delta as f64;
-            // 若前后数据点相同, 判定为重复并移除
-            if &log.xxyy == &prev_log.xxyy {
-                duplicate_count += 1;
-                return;
-            }
-            if delta < min {
-                min = delta;
-            }
-            if delta > max {
-                max = delta;
-            }
-        });
-        let avg = sum / ((logs.len() - duplicate_count) as f64);
-        let polling_rate = PollingRateResult { // 每秒 / 间隔 = 轮询率
-            polling_rate_avg: 1000000.0 / avg,
-            polling_rate_min: 1000000.0 / max as f64,
-            polling_rate_max: 1000000.0 / min as f64,
-            avg_interval: avg / 1000.0, // ms
-            drop_rate: (duplicate_count as f64) / (logs.len() as f64),
+        let math_util = self.math_utils.entry(user_index).or_insert(MathUtil::new());
+        let result = math_util.calc_frequency(logs.iter().map(|log| (log.timestamp as i64, log.xyxy.clone())).collect()).unwrap();
+        let polling_rate_result = PollingRateResult {
+            polling_rate_avg: result.0,
+            polling_rate_min: result.1,
+            polling_rate_max: result.2,
+            avg_interval: result.3,
+            avg_error_l: self.calc_avg_error(self.direction_bins.get(&user_index).unwrap().0.clone()),
+            avg_error_r: self.calc_avg_error(self.direction_bins.get(&user_index).unwrap().1.clone()),
         };
-        self.polling_rate_result.insert(user_index, polling_rate.clone());
-        polling_rate
+        self.polling_rate_result.insert(user_index, polling_rate_result.clone());
+        polling_rate_result
     }
 
     pub fn record_polling_rate(&mut self, user_index: u32, is_filter_duplicate: bool) -> PollingRateLog {
         let logs = self.polling_rate_log.entry(user_index).or_insert(Vec::new());
-        self.xinput_state.update(user_index).unwrap();
-
+        let direction_log = self.direction_bins.entry(user_index).or_insert((HashMap::new(), HashMap::new()));
+        self.xinput_state.update(user_index);
+        let xyxy = self.xinput_state.get_axis_val().unwrap();
         let log = PollingRateLog {
             timestamp: chrono::Utc::now().timestamp_micros() as u64,
-            xxyy: self.xinput_state.get_axis_val().unwrap(),
+            xyxy,
         };
 
-        if is_filter_duplicate && logs.len() > 0 && logs.last().unwrap().xxyy == log.xxyy {
+        if is_filter_duplicate && logs.len() > 0 && logs.last().unwrap().xyxy == log.xyxy {
             return log;
         } else {
             logs.push(log.clone());
+            let theta_l = Direction::new(atan2(xyxy.1 as f64, xyxy.0 as f64), 0);
+            let theta_r = Direction::new(atan2(xyxy.3 as f64, xyxy.2 as f64), 0);
+            let r_l = ((xyxy.0 as f64).powi(2) + (xyxy.1 as f64).powi(2)).sqrt() as u32;
+            let r_r = ((xyxy.2 as f64).powi(2) + (xyxy.3 as f64).powi(2)).sqrt() as u32;
+            direction_log.0.entry(theta_l).or_insert(r_l);
+            direction_log.1.entry(theta_r).or_insert(r_r);
         }
 
         // 限制日志长度
         if logs.len() > MAX_LOG_SIZE {
-            logs.remove(0);
+            logs.drain(0..=CALCULATE_INTERVAL);
+            // logs.remove(0);
         }
 
         // 每100条记录计算一次
-        if logs.len() % 100 == 0 {
+        if logs.len() % CALCULATE_INTERVAL == 0 {
             self.get_polling_rate(user_index);
         }
 
         log
+    }
+
+    fn calc_avg_error<T>(&self, dir_bin: HashMap<T, u32>) -> f64 {
+        let length = dir_bin.len();
+        let n = if length == 0 { 1 } else { length } as f64;
+        let sum = dir_bin.iter().map(|(_, v)| v).sum::<u32>() as f64;
+        1.0f64 - ((sum / n) / MAX_R)
     }
 }
 
@@ -228,7 +236,7 @@ pub struct GamepadInfo {
 #[derive(Serialize, Debug, Deserialize, Clone)]
 pub struct PollingRateLog {
     pub timestamp: u64,
-    pub xxyy: (i16, i16, i16, i16),
+    pub xyxy: (i16, i16, i16, i16),
 }
 
 #[derive(Serialize, Debug, Deserialize, Clone)]
@@ -237,7 +245,31 @@ pub struct PollingRateResult {
     pub polling_rate_min: f64,
     pub polling_rate_max: f64,
     pub avg_interval: f64,
-    pub drop_rate: f64,
+    pub avg_error_l: f64,
+    pub avg_error_r: f64,
+}
+
+#[derive(Hash, Eq, PartialEq, Debug, Clone)]
+struct Direction {
+    int_part: i64,
+    frac_part: u64,
+    precision: u32, // 记录精度方便后续比较和输出
+}
+
+impl Direction {
+    /// 使用给定精度（小数位数）拆分 f64 值的整数和小数部分
+    fn new(val: f64, precision: u32) -> Direction {
+        let int_part = val.trunc() as i64;
+        let factor = 10u64.pow(precision);
+        // 计算绝对值的小数部分，四舍五入再转为整数
+        let frac_part = (val.fract().abs() * factor as f64).round() as u64;
+
+        Direction {
+            int_part,
+            frac_part,
+            precision,
+        }
+    }
 }
 
 impl GamepadInfo {

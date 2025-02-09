@@ -9,14 +9,14 @@
         <line
             :x1="90"
             :y1="90"
-            :x2="90 + axisX * 80"
-            :y2="90 - axisY * 80"
+            :x2="90 + axisX * 85"
+            :y2="90 - axisY * 85"
             stroke="gray"
             stroke-width="1"
         />
         <circle
-            :cx="90 + axisX * 80"
-            :cy="90 - axisY * 80"
+            :cx="90 + axisX * 85"
+            :cy="90 - axisY * 85"
             r="5"
             fill="gray"
         />
@@ -62,7 +62,7 @@ const xAxisStyle = computed(() => ({
   backgroundColor: '#42b983',
 }));
 
-const formatAxisValue = (value: number) => value.toFixed(4);
+const formatAxisValue = (value: number) => value.toFixed(6);
 </script>
 
 <style scoped>
