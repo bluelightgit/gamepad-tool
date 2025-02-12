@@ -16,9 +16,6 @@
         <div v-if="selectedGamepad" class="gamepad-info">
           <h2>{{ selectedGamepad.name }}</h2>
           <p>Power Info: {{ selectedGamepad.power_info }}</p>
-          <p>Vendor ID: {{ selectedGamepad.vendor_id }}</p>
-          <p>Product ID: {{ selectedGamepad.product_id }}</p>
-          <p>GUID: {{ selectedGamepad.guid }}</p>
 
           <div class="layout-container">
             <!-- 按键区域 -->

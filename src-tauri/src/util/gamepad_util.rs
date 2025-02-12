@@ -1,31 +1,20 @@
-use std::{collections::{HashMap, HashSet}, mem, sync::Arc};
+use std::{collections::{HashMap, HashSet}, sync::{atomic::AtomicBool, Arc}};
 use std::sync::Mutex;
 use std::thread::JoinHandle;
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
-// use windows::Win32::UI::Input::XboxController::{
-//     XInputGetBatteryInformation, XInputGetState, BATTERY_DEVTYPE, BATTERY_LEVEL_EMPTY, BATTERY_LEVEL_FULL, BATTERY_LEVEL_LOW, BATTERY_LEVEL_MEDIUM, XINPUT_BATTERY_INFORMATION, XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B, XINPUT_GAMEPAD_BACK, XINPUT_GAMEPAD_DPAD_DOWN, XINPUT_GAMEPAD_DPAD_LEFT, XINPUT_GAMEPAD_DPAD_RIGHT, XINPUT_GAMEPAD_DPAD_UP, XINPUT_GAMEPAD_LEFT_SHOULDER, XINPUT_GAMEPAD_LEFT_THUMB, XINPUT_GAMEPAD_RIGHT_SHOULDER, XINPUT_GAMEPAD_RIGHT_THUMB, XINPUT_GAMEPAD_START, XINPUT_GAMEPAD_X, XINPUT_GAMEPAD_Y, XINPUT_STATE, XUSER_MAX_COUNT
-// };
-use windows::Gaming::Input::{
-    // GameControllerSwitchPosition, Gamepad as WgiGamepad, GamepadButtons, GamepadReading,
-    RawGameController,
-};
-use uuid::Uuid;
 use libm::atan2;
 use crate::util::math_util::MathUtil;
 use crate::util::input_wrapper::{RawInput, XInput};
 
-const DEFAULT_FRAME_RATE: u32 = 60;
 const MAX_LOG_SIZE: usize = 1000;
 const CALCULATE_INTERVAL: usize = 100; // caluculate onece per 100 logs
 const POLLING_RATE_RETRIEVE_INTERVAL: u64 = 1; // microsecond
-const SDL_HARDWARE_BUS_USB: u32 = 0x03;
 const MAX_R: f64 = 32767.0f64; // 最大圆半径
 #[derive(Debug, Clone)]
 pub struct GamepadState {
     xinput_state: XInput,
-    frame_rate: u32,
     cur_gamepads: HashSet<u32>,
     polling_rate_log: HashMap<u32, Vec<PollingRateLog>>, // user_index, (timestamp, (x, y))
     polling_rate_result: HashMap<u32, PollingRateResult>, // user_index, (avg, min, max)
@@ -37,17 +26,12 @@ impl GamepadState {
     pub fn new() -> Self {
         GamepadState {
             xinput_state: XInput::new(),
-            frame_rate: 1000 / DEFAULT_FRAME_RATE,
             cur_gamepads: HashSet::new(),
             polling_rate_log: HashMap::new(),
             polling_rate_result: HashMap::new(),
             math_utils: HashMap::new(),
             direction_bins: HashMap::new(),
         }
-    }
-
-    pub fn set_frame_rate(&mut self, frame_rate: u32) {
-        self.frame_rate = frame_rate;
     }
 
     /// 从 XInput 控制器状态构造 GamepadInfo
@@ -78,46 +62,17 @@ impl GamepadState {
                 },
             )
         }).collect::<HashMap<String, AxisData>>();
-        let mut vendor_id = 0;
-        let mut product_id = 0;
-        let mut name = format!("Xinput Controller {}", user_index);
-        let raw_game_controllers = RawGameController::RawGameControllers().unwrap();
-        let uuid = match raw_game_controllers.Size().unwrap() == 0 || raw_game_controllers.GetAt(user_index).is_err() {
-            true => Uuid::nil(),
-            false => {
-                let raw_game_controller = raw_game_controllers.GetAt(user_index).unwrap();
-                vendor_id = raw_game_controller.HardwareVendorId().unwrap();
-                product_id = raw_game_controller.HardwareProductId().unwrap();
-                name = match raw_game_controller.DisplayName() {
-                    Ok(hstring) => hstring.to_string_lossy(),
-                    Err(_) => "unknown".to_string(),
-                };
-                let version = 0;
-                let bustype = SDL_HARDWARE_BUS_USB.to_be();
-                Uuid::from_fields(
-                    bustype,
-                    vendor_id,
-                    0,
-                    &[
-                        (product_id >> 8) as u8,
-                        product_id as u8,
-                        0,
-                        0,
-                        (version >> 8) as u8,
-                        version as u8,
-                        0,
-                        0,
-                    ],
-                )
-            }
-        };
+        let vendor_id = 0;
+        let product_id = 0;
+        let name = format!("Xinput Controller {}", user_index);
+        
         // 构造 GamepadInfo
         GamepadInfo {
             id: user_index,
             name,
             vendor_id: Some(vendor_id),
             product_id: Some(product_id),
-            guid: uuid.to_string(),
+            guid: "".to_string(),
             power_info: gamepad.power_info,
             axes,
             buttons,
@@ -272,52 +227,40 @@ impl Direction {
     }
 }
 
-impl GamepadInfo {
-    pub fn to_string(&self) -> String {
-        format!(
-            "Gamepad: {}\nVendor ID: {:?}\nProduct ID: {:?}\nPower Info: {}\nAxes: {:?}\nButtons: {:?}",
-            self.name,
-            self.vendor_id,
-            self.product_id,
-            self.power_info,
-            self.axes,
-            self.buttons
-        )
-    }
-}
-
 #[tauri::command]
-pub fn start_update_thread(app_handle: tauri::AppHandle, state: Arc<Mutex<GamepadState>>) -> JoinHandle<()> {
+pub fn start_update_thread(app_handle: tauri::AppHandle, state: Arc<Mutex<GamepadState>>, exit_flag: Arc<AtomicBool>) -> JoinHandle<()> {
     let handle = std::thread::spawn(move || {
         let mut last_emit_time = chrono::Utc::now().timestamp_micros();
         let mut prev_axes: HashMap<u32, (f64, f64, f64, f64)> = HashMap::new();
         loop {
-            let mut gamepad_state = state.lock().unwrap();
-            let gamepads = gamepad_state.get_xinput_gamepads();
-            // app_handle
-            //     .emit("gamepads_info", gamepads.clone()).ok()
-            //     .expect("failed to emit gamepads_info");
-            let gamepads_vec: Vec<u32> = gamepad_state.cur_gamepads.iter().cloned().collect();
-            for i in gamepads_vec.iter() {
-                gamepad_state.record_polling_rate(*i, true);
+            if exit_flag.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
             }
-            if chrono::Utc::now().timestamp_micros() - last_emit_time >= 10000_i64 {
-                app_handle
-                    .emit("gamepads_info", gamepads.clone()).ok()
-                    .expect("failed to emit gamepads_info");
-                app_handle
-                    .emit("polling_rate_log", gamepad_state.polling_rate_log.clone()).ok()
-                    .expect("failed to emit polling_rate_log");
-                app_handle
-                    .emit("polling_rate_result", gamepad_state.polling_rate_result.clone()).ok()
-                    .expect("failed to emit polling_rate_result");
-                last_emit_time = chrono::Utc::now().timestamp_millis();
-            }
-            let now_axes = gamepads.iter().map(|(k, v)|
-                (*k, (v.axes.get("LeftThumbX").unwrap().value, v.axes.get("LeftThumbY").unwrap().value, v.axes.get("RightThumbX").unwrap().value, v.axes.get("RightThumbY").unwrap().value))).collect();
-            if now_axes != prev_axes {
-                prev_axes = now_axes;
-                println!("{:?}", prev_axes);
+            {
+                let mut gamepad_state = state.lock().unwrap();
+                let gamepads = gamepad_state.get_xinput_gamepads();
+                let gamepads_vec: Vec<u32> = gamepad_state.cur_gamepads.iter().cloned().collect();
+                for i in gamepads_vec.iter() {
+                    gamepad_state.record_polling_rate(*i, true);
+                }
+                if chrono::Utc::now().timestamp_micros() - last_emit_time >= 10000_i64 {
+                    app_handle
+                        .emit("gamepads_info", gamepads.clone()).ok()
+                        .expect("failed to emit gamepads_info");
+                    app_handle
+                        .emit("polling_rate_log", gamepad_state.polling_rate_log.clone()).ok()
+                        .expect("failed to emit polling_rate_log");
+                    app_handle
+                        .emit("polling_rate_result", gamepad_state.polling_rate_result.clone()).ok()
+                        .expect("failed to emit polling_rate_result");
+                    last_emit_time = chrono::Utc::now().timestamp_millis();
+                }
+                let now_axes = gamepads.iter().map(|(k, v)|
+                    (*k, (v.axes.get("LeftThumbX").unwrap().value, v.axes.get("LeftThumbY").unwrap().value, v.axes.get("RightThumbX").unwrap().value, v.axes.get("RightThumbY").unwrap().value))).collect();
+                if now_axes != prev_axes {
+                    prev_axes = now_axes;
+                    println!("{:?}", prev_axes);
+                }
             }
             std::thread::sleep(Duration::from_micros(POLLING_RATE_RETRIEVE_INTERVAL));
         }
@@ -325,14 +268,3 @@ pub fn start_update_thread(app_handle: tauri::AppHandle, state: Arc<Mutex<Gamepa
     handle
 }
 
-#[tauri::command]
-pub fn get_polling_rate(user_index: u32, state: Arc<Mutex<GamepadState>>) -> PollingRateResult {
-    let mut gamepad_state = state.lock().unwrap();
-    gamepad_state.get_polling_rate(user_index)
-}
-
-#[tauri::command]
-pub fn set_frame_rate(state: Arc<Mutex<GamepadState>>, frame_rate: u32) {
-    let mut gamepad_state = state.lock().unwrap();
-    gamepad_state.set_frame_rate(frame_rate);
-}

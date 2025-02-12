@@ -25,7 +25,6 @@ serde_json = "1"
 log = "0.4.22"
 chrono = "0.4.39"
 windows = { version = "0.59.0", features = ["Win32_UI_Input_XboxController", "Gaming_Input_Custom", 
-            "Gaming_Input_Preview", "Foundation", "System", "Foundation_Collections"] }
-uuid = "1.11.1"
+            "Gaming_Input_Preview"] }
 libm = "0.2.11"
 

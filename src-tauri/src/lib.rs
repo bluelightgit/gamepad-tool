@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex};
 
 use tauri::{Listener, Manager};
 use util::gamepad_util::GamepadState;
@@ -11,23 +11,8 @@ mod util {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
-        // .manage(
-        //     Arc::new(Mutex::new(GamepadState::new()))
-        // )
         .plugin(tauri_plugin_opener::init())
-        // .setup(move |app| {
-        //     app.listen("polling_rate_log", |event| {
-        //         if let Ok(payload) = serde_json::from_str::<HashMap<u32, Vec<PollingRateLog>>>(&event.payload()){
-        //             println!("{:?}", payload);
-        //         };
-        //     });
-        //     Ok(())
-        // })
         .invoke_handler(tauri::generate_handler![
-            // util::gamepad_util::start_update_thread,
-            // util::gamepad_util::record_polling_rate,
-            // util::gamepad_util::get_polling_rate,
-            // util::gamepad_util::set_frame_rate,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -35,8 +20,13 @@ pub fn run() {
     // let state = app_handle.state::<Arc<Mutex<GamepadState>>>().clone();
     let state = Arc::new(Mutex::new(GamepadState::new()));
     let mutex_state = Arc::clone(&state);
-    let update_thread = util::gamepad_util::start_update_thread(app_handle, mutex_state);
-    app.run(|_, _: tauri::RunEvent| {
+    let exit_flag = Arc::new(AtomicBool::new(false));
+    let thread_exit_flag = Arc::clone(&exit_flag);
+    let update_thread = util::gamepad_util::start_update_thread(app_handle, mutex_state, thread_exit_flag);
+    app.run(move |_, event| {
+        if let tauri::RunEvent::ExitRequested { .. } = event {
+            exit_flag.store(true, Ordering::SeqCst);
+        }
     });
     update_thread.join().unwrap();
 }

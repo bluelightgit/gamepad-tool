@@ -1134,7 +1134,6 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
- "uuid",
  "windows 0.59.0",
 ]
 
