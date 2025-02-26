@@ -14,12 +14,12 @@ const POLLING_RATE_RETRIEVE_INTERVAL: u64 = 1; // microsecond
 const MAX_R: f64 = 32767.0f64; // 最大圆半径
 #[derive(Debug, Clone)]
 pub struct GamepadState {
-    xinput_state: XInput,
-    cur_gamepads: HashSet<u32>,
-    polling_rate_log: HashMap<u32, Vec<PollingRateLog>>, // user_index, (timestamp, (x, y))
-    polling_rate_result: HashMap<u32, PollingRateResult>, // user_index, (avg, min, max)
-    math_utils: HashMap<u32, MathUtil>,
-    direction_bins: HashMap<u32, (HashMap<Direction, u32>, HashMap<Direction, u32>)>, // user_index, (left(direction, max_radius), right(direction, max_radius))
+    pub xinput_state: XInput,
+    pub cur_gamepads: HashSet<u32>,
+    pub polling_rate_log: HashMap<u32, Vec<PollingRateLog>>, // user_index, (timestamp, (x, y))
+    pub polling_rate_result: HashMap<u32, PollingRateResult>, // user_index, (avg, min, max)
+    pub math_utils: HashMap<u32, MathUtil>,
+    pub direction_bins: HashMap<u32, (HashMap<Direction, u32>, HashMap<Direction, u32>)>, // user_index, (left(direction, max_radius), right(direction, max_radius))
 }
 
 impl GamepadState {
@@ -35,7 +35,7 @@ impl GamepadState {
     }
 
     /// 从 XInput 控制器状态构造 GamepadInfo
-    pub fn from_xinput_state(
+    pub fn get_xinput_gamepad(
         &mut self,
         user_index: u32,   
     ) -> GamepadInfo {
@@ -83,7 +83,7 @@ impl GamepadState {
         let mut infos: HashMap<u32, GamepadInfo> = HashMap::new();
         for user_index in self.get_cur_gamepads().iter() {
             // 构造 GamepadInfo
-            let gamepad_info = self.from_xinput_state(*user_index);
+            let gamepad_info = self.get_xinput_gamepad(*user_index);
             self.cur_gamepads.insert(*user_index);
             // self.record_polling_rate(user_index, true);
             infos.insert(gamepad_info.id, gamepad_info);

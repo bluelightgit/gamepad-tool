@@ -3,15 +3,13 @@
     <div class="gamepad-test">
       <h1>Gamepad Test</h1>
 
-      <div v-if="hasGamepads">
-        <div class="selector">
-          <label for="gamepad-select">Select Gamepad:</label>
-          <select id="gamepad-select" v-model="selectedGamepadId">
-            <option v-for="(gamepad, id) in gamepads" :key="id" :value="id">
-              {{ gamepad.name }}
-            </option>
-          </select>
-        </div>
+      <div class="selector">
+        <label for="gamepad-select">Select Gamepad:</label>
+        <select id="gamepad-select" v-model="selectedGamepadId" @click="updateGamepadIds">
+          <option v-for="gamepadId in gamepadIds" :key="gamepadId" :value="gamepadId">
+            {{ gamepadId }}
+          </option>
+        </select>
 
         <div v-if="selectedGamepad" class="gamepad-info">
           <h2>{{ selectedGamepad.name }}</h2>
@@ -80,9 +78,10 @@
 </template>
 
 <script setup lang="ts">
-import {ref, onMounted, computed} from "vue";
+import {ref, onMounted, computed, watch} from "vue";
 import { listen } from "@tauri-apps/api/event";
 import JoystickVisualization from "../components/JoystickVisualization.vue";
+import { invoke } from "@tauri-apps/api/core";
 
 interface AxisData {
   axis: string;
@@ -116,9 +115,8 @@ interface PollingRateResult {
   avg_error_l: number;
 }
 
-// const originalData = ref<string>("Loading...");
-const gamepads = ref<Record<string, GamepadInfo>>({});
-const selectedGamepadId = ref<string | null>(null);
+const selectedGamepad = ref<GamepadInfo>();
+const selectedGamepadId = ref<number | 0>(0);
 const pollingRateData = ref<Record<string, PollingRateResult | null>>({});
 
 const fixedButtonOrder = [
@@ -130,9 +128,8 @@ const fixedButtonOrder = [
   "DPadUp", "DPadDown", "DPadLeft", "DPadRight" // 方向键
 ];
 
-const hasGamepads = computed(() => Object.keys(gamepads.value).length > 0);
-const selectedGamepad = computed(() => selectedGamepadId.value ? gamepads.value[selectedGamepadId.value] : null);
-const selectedPollingRateData = computed(() => selectedGamepadId.value ? pollingRateData.value[selectedGamepadId.value] : null);
+const selectedPollingRateData = computed(() => selectedGamepad.value ? pollingRateData.value[selectedGamepadId.value] : null);
+const gamepadIds = ref<number[]>([]);
 
 const getButtonValue = (buttonKey: string) => selectedGamepad.value?.buttons[buttonKey]?.value || 0;
 const getButtonName = (buttonKey: string) => selectedGamepad.value?.buttons[buttonKey]?.button || buttonKey;
@@ -141,16 +138,39 @@ const getAxisValue = (axisKey: string) => selectedGamepad.value?.axes[axisKey]?.
 const formatNumber = (value: number) => value.toFixed(2);
 
 onMounted(async () => {
-  await Promise.all([fetchGamepads(),
-    fetchPollingRate()]);
+  // 初始化调用
+  await start_main_thread(selectedGamepadId.value ? selectedGamepadId.value : 0);
+  await Promise.all([fetchGamepads(), fetchPollingRate()]);
 });
+
+// 监听 selectedGamepadId 的变化，每次变化时重新调用 start_main_thread
+watch(selectedGamepadId, async (newVal, oldVal) => {
+  if (newVal !== oldVal) {
+    await stop_main_thread();
+    await start_main_thread(newVal ? newVal : 0);
+  }
+});
+
+async function start_main_thread(userId?: number | 0) {
+  return invoke<void>("start_update", { userId });
+}
+
+async function stop_main_thread() {
+  return invoke<void>("stop_update");
+}
+
+async function get_gamepad_ids() {
+  return invoke<number[]>("get_gamepad_ids");
+}
+
+async function updateGamepadIds() {
+  const ids = await get_gamepad_ids();
+  gamepadIds.value = ids;
+}
 
 async function fetchGamepads() {
   listen("gamepads_info", (event) => {
-    gamepads.value = event.payload as Record<string, GamepadInfo>;
-    if (!selectedGamepadId.value && hasGamepads.value) {
-      selectedGamepadId.value = Object.keys(gamepads.value)[0];
-    }
+    selectedGamepad.value = event.payload as GamepadInfo;
   });
 }
 
