@@ -1,7 +1,7 @@
-use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
+use std::{sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, time::Duration};
 use tauri::{AppHandle, Emitter};
 
-use crate::GamepadState;
+use crate::{util::gamepad_util::GamepadInfo, GamepadState};
 
 pub struct GlobalGamepadState {
     pub mutex_state: Arc<Mutex<GamepadState>>,
@@ -26,14 +26,13 @@ pub fn start_update(app_handle: AppHandle, state: tauri::State<'_, GlobalGamepad
     }
     let cancel_flag = state.update_running.clone();
     let mutex_state = Arc::clone(&state.mutex_state);
-    let mut last_emit_time = chrono::Utc::now().timestamp_millis();
-    // let mut prev_axes = std::collections::HashMap::new();
+    let mut last_emit_time = chrono::Utc::now().timestamp_micros();
     tauri::async_runtime::spawn(async move {
         while cancel_flag.load(Ordering::SeqCst) {
             let mut gamepad_state = mutex_state.lock().unwrap();
             let gamepad = gamepad_state.get_xinput_gamepad(user_id);
             gamepad_state.record_polling_rate(user_id, true);
-            if chrono::Utc::now().timestamp_micros() - last_emit_time >= 10000_i64 {
+            if chrono::Utc::now().timestamp_micros() - last_emit_time >= 20000_i64 {
                 app_handle
                     .emit("gamepads_info", gamepad.clone()).ok()
                     .expect("failed to emit gamepads_info");
@@ -43,8 +42,10 @@ pub fn start_update(app_handle: AppHandle, state: tauri::State<'_, GlobalGamepad
                 app_handle
                     .emit("polling_rate_result", gamepad_state.polling_rate_result.clone()).ok()
                     .expect("failed to emit polling_rate_result");
-                last_emit_time = chrono::Utc::now().timestamp_millis();
+                last_emit_time = chrono::Utc::now().timestamp_micros();
             }
+            println!("{:?}", gamepad_state.get_record_log(user_id).last().unwrap());
+            std::thread::sleep(Duration::from_micros(1));
         }
     });
 }
@@ -60,4 +61,9 @@ pub fn get_gamepad_ids(state: tauri::State<'_, GlobalGamepadState>) -> Vec<u32> 
     let mut ids: Vec<u32> = gamepad_state.get_cur_gamepads().iter().map(|id| *id).collect();
     ids.sort();
     ids
+}
+
+pub fn get_cur_gamepads(state: tauri::State<'_, GlobalGamepadState>, user_id: u32) -> GamepadInfo {
+    let mut gamepad_state = state.mutex_state.lock().unwrap();
+    gamepad_state.get_xinput_gamepad(user_id)
 }

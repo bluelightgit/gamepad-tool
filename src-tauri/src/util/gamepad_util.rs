@@ -161,6 +161,10 @@ impl GamepadState {
         let sum = dir_bin.iter().map(|(_, v)| v).sum::<u32>() as f64;
         1.0f64 - ((sum / n) / MAX_R)
     }
+
+    pub fn get_record_log(&self, user_index: u32) -> Vec<PollingRateLog> {
+        self.polling_rate_log.get(&user_index).unwrap().clone()
+    }
 }
 
 #[derive(Serialize, Debug, Deserialize, Clone)]
