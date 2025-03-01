@@ -1,7 +1,7 @@
 use std::{sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, time::Duration};
 use tauri::{AppHandle, Emitter};
 
-use crate::{util::gamepad_util::GamepadInfo, GamepadState};
+use crate::GamepadState;
 
 pub struct GlobalGamepadState {
     pub mutex_state: Arc<Mutex<GamepadState>>,
@@ -19,7 +19,7 @@ impl Default for GlobalGamepadState {
 }
 
 #[tauri::command]
-pub fn start_update(app_handle: AppHandle, state: tauri::State<'_, GlobalGamepadState>, user_id: u32) {
+pub fn start_update(app_handle: AppHandle, state: tauri::State<'_, GlobalGamepadState>, user_id: u32, frame_rate: i64) {
     // 如果已经在更新则不重复启动
     if state.update_running.swap(true, Ordering::SeqCst) {
         return;
@@ -27,12 +27,13 @@ pub fn start_update(app_handle: AppHandle, state: tauri::State<'_, GlobalGamepad
     let cancel_flag = state.update_running.clone();
     let mutex_state = Arc::clone(&state.mutex_state);
     let mut last_emit_time = chrono::Utc::now().timestamp_micros();
+    let frame_interval = 1_000_000 / frame_rate;
     tauri::async_runtime::spawn(async move {
         while cancel_flag.load(Ordering::SeqCst) {
             let mut gamepad_state = mutex_state.lock().unwrap();
             let gamepad = gamepad_state.get_xinput_gamepad(user_id);
             gamepad_state.record_polling_rate(user_id, true);
-            if chrono::Utc::now().timestamp_micros() - last_emit_time >= 20000_i64 {
+            if chrono::Utc::now().timestamp_micros() - last_emit_time >= frame_interval {
                 app_handle
                     .emit("gamepads_info", gamepad.clone()).ok()
                     .expect("failed to emit gamepads_info");
@@ -44,7 +45,7 @@ pub fn start_update(app_handle: AppHandle, state: tauri::State<'_, GlobalGamepad
                     .expect("failed to emit polling_rate_result");
                 last_emit_time = chrono::Utc::now().timestamp_micros();
             }
-            println!("{:?}", gamepad_state.get_record_log(user_id).last().unwrap());
+            // println!("{:?}, FPS: {:?}", gamepad_state.get_record_log(user_id).last().unwrap(), frame_rate);
             std::thread::sleep(Duration::from_micros(1));
         }
     });
@@ -61,9 +62,4 @@ pub fn get_gamepad_ids(state: tauri::State<'_, GlobalGamepadState>) -> Vec<u32> 
     let mut ids: Vec<u32> = gamepad_state.get_cur_gamepads().iter().map(|id| *id).collect();
     ids.sort();
     ids
-}
-
-pub fn get_cur_gamepads(state: tauri::State<'_, GlobalGamepadState>, user_id: u32) -> GamepadInfo {
-    let mut gamepad_state = state.mutex_state.lock().unwrap();
-    gamepad_state.get_xinput_gamepad(user_id)
 }

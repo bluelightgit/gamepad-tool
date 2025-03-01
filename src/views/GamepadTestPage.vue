@@ -1,12 +1,41 @@
 <template>
   <main class="container">
     <div class="gamepad-test">
-      <h1>Gamepad Test</h1>
+      <div class="header">
+        <h1>Gamepad Test</h1>
+        <div class="settings">
+          <button class="settings-button" @click="toggleSettingsMenu">
+            ⚙️ Settings
+          </button>
+          <div v-if="isSettingsMenuOpen" class="settings-menu">
+            <div class="frame-rate-selector">
+              <label>Frame Rate:</label>
+              <div
+                v-for="rate in frameRateOptions"
+                :key="rate"
+                class="frame-rate-option"
+                :class="{ selected: selectedFrameRate === rate }"
+                @click="setFrameRate(rate)"
+              >
+                {{ rate }} Hz
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div class="selector">
         <label for="gamepad-select">Select Gamepad:</label>
-        <select id="gamepad-select" v-model="selectedGamepadId" @click="updateGamepadIds">
-          <option v-for="gamepadId in gamepadIds" :key="gamepadId" :value="gamepadId">
+        <select
+          id="gamepad-select"
+          v-model="selectedGamepadId"
+          @click="updateGamepadIds"
+        >
+          <option
+            v-for="gamepadId in gamepadIds"
+            :key="gamepadId"
+            :value="gamepadId"
+          >
             {{ gamepadId }}
           </option>
         </select>
@@ -21,15 +50,15 @@
               <h3>Buttons</h3>
               <div class="buttons-grid">
                 <div
-                    v-for="buttonKey in fixedButtonOrder"
-                    :key="buttonKey"
-                    class="button-item"
+                  v-for="buttonKey in fixedButtonOrder"
+                  :key="buttonKey"
+                  class="button-item"
                 >
                   <div class="progress-container">
                     <progress
-                        :value="getButtonValue(buttonKey)"
-                        max="1"
-                        class="vertical-progress"
+                      :value="getButtonValue(buttonKey)"
+                      max="1"
+                      class="vertical-progress"
                     ></progress>
                   </div>
                   <div class="button-info">
@@ -49,12 +78,12 @@
               <h3>Joysticks</h3>
               <div class="joystick-group">
                 <JoystickVisualization
-                    :axisX="getAxisValue('LeftThumbX')"
-                    :axisY="getAxisValue('LeftThumbY')"
+                  :axisX="getAxisValue('LeftThumbX')"
+                  :axisY="getAxisValue('LeftThumbY')"
                 />
                 <JoystickVisualization
-                    :axisX="getAxisValue('RightThumbX')"
-                    :axisY="getAxisValue('RightThumbY')"
+                  :axisX="getAxisValue('RightThumbX')"
+                  :axisY="getAxisValue('RightThumbY')"
                 />
               </div>
             </div>
@@ -62,12 +91,39 @@
             <!-- 轮询率数据 -->
             <div class="polling-rate-area">
               <div v-if="selectedPollingRateData" class="polling-rate-data">
-                <p>Avg: {{ formatNumber(selectedPollingRateData.polling_rate_avg) }} Hz</p>
-                <p>Min: {{ formatNumber(selectedPollingRateData.polling_rate_min) }} Hz</p>
-                <p>Max: {{ formatNumber(selectedPollingRateData.polling_rate_max) }} Hz</p>
-                <p>Avg Interval: {{ formatNumber(selectedPollingRateData.avg_interval) }} ms</p>
-                <p>Error(L): {{ formatNumber(selectedPollingRateData.avg_error_l) }} %</p>
-                <p>Error(R): {{ formatNumber(selectedPollingRateData.avg_error_r) }} %</p>
+                <p>
+                  Avg:
+                  {{
+                    formatNumber(selectedPollingRateData.polling_rate_avg)
+                  }}
+                  Hz
+                </p>
+                <p>
+                  Min:
+                  {{
+                    formatNumber(selectedPollingRateData.polling_rate_min)
+                  }}
+                  Hz
+                </p>
+                <p>
+                  Max:
+                  {{
+                    formatNumber(selectedPollingRateData.polling_rate_max)
+                  }}
+                  Hz
+                </p>
+                <p>
+                  Avg Interval:
+                  {{ formatNumber(selectedPollingRateData.avg_interval) }} ms
+                </p>
+                <p>
+                  Error(L):
+                  {{ formatNumber(selectedPollingRateData.avg_error_l) }} %
+                </p>
+                <p>
+                  Error(R):
+                  {{ formatNumber(selectedPollingRateData.avg_error_r) }} %
+                </p>
               </div>
             </div>
           </div>
@@ -78,7 +134,7 @@
 </template>
 
 <script setup lang="ts">
-import {ref, onMounted, computed, watch} from "vue";
+import { ref, onMounted, computed, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import JoystickVisualization from "../components/JoystickVisualization.vue";
 import { invoke } from "@tauri-apps/api/core";
@@ -116,43 +172,79 @@ interface PollingRateResult {
 }
 
 const selectedGamepad = ref<GamepadInfo>();
-const selectedGamepadId = ref<number | 0>(0);
+const selectedGamepadId = ref(0);
 const pollingRateData = ref<Record<string, PollingRateResult | null>>({});
-
+const isSettingsMenuOpen = ref(false);
+const selectedFrameRate = ref(60);
+const frameRateOptions = [30, 60, 120, 180];
 const fixedButtonOrder = [
-  "A", "B", "X", "Y", // 主按钮
-  "LeftShoulder", "RightShoulder", // 肩键
-  "LeftTrigger", "RightTrigger", // 扳机键
-  "Back", "Start", // 功能键
-  "LeftThumb", "RightThumb", // 摇杆按键
-  "DPadUp", "DPadDown", "DPadLeft", "DPadRight" // 方向键
+  "A",
+  "B",
+  "X",
+  "Y", // 主按钮
+  "LeftShoulder",
+  "RightShoulder", // 肩键
+  "LeftTrigger",
+  "RightTrigger", // 扳机键
+  "Back",
+  "Start", // 功能键
+  "LeftThumb",
+  "RightThumb", // 摇杆按键
+  "DPadUp",
+  "DPadDown",
+  "DPadLeft",
+  "DPadRight", // 方向键
 ];
 
-const selectedPollingRateData = computed(() => selectedGamepad.value ? pollingRateData.value[selectedGamepadId.value] : null);
+const selectedPollingRateData = computed(() =>
+  selectedGamepad.value ? pollingRateData.value[selectedGamepadId.value] : null
+);
 const gamepadIds = ref<number[]>([]);
 
-const getButtonValue = (buttonKey: string) => selectedGamepad.value?.buttons[buttonKey]?.value || 0;
-const getButtonName = (buttonKey: string) => selectedGamepad.value?.buttons[buttonKey]?.button || buttonKey;
-const formatButtonValue = (buttonKey: string) => getButtonValue(buttonKey).toFixed(2);
-const getAxisValue = (axisKey: string) => selectedGamepad.value?.axes[axisKey]?.value || 0;
+const getButtonValue = (buttonKey: string) =>
+  selectedGamepad.value?.buttons[buttonKey]?.value || 0;
+const getButtonName = (buttonKey: string) =>
+  selectedGamepad.value?.buttons[buttonKey]?.button || buttonKey;
+const formatButtonValue = (buttonKey: string) =>
+  getButtonValue(buttonKey).toFixed(2);
+const getAxisValue = (axisKey: string) =>
+  selectedGamepad.value?.axes[axisKey]?.value || 0;
 const formatNumber = (value: number) => value.toFixed(2);
 
 onMounted(async () => {
   // 初始化调用
-  await start_main_thread(selectedGamepadId.value ? selectedGamepadId.value : 0);
+  await updateGamepadIds();
+  await start_main_thread(
+    selectedGamepadId.value ? selectedGamepadId.value : 0,
+    selectedFrameRate.value
+  );
   await Promise.all([fetchGamepads(), fetchPollingRate()]);
 });
+
+const toggleSettingsMenu = () => {
+  isSettingsMenuOpen.value = !isSettingsMenuOpen.value;
+};
+
+const setFrameRate = async (rate: number) => {
+  selectedFrameRate.value = rate;
+  await stop_main_thread();
+  await start_main_thread(selectedGamepadId.value, rate);
+  isSettingsMenuOpen.value = false;
+};
 
 // 监听 selectedGamepadId 的变化，每次变化时重新调用 start_main_thread
 watch(selectedGamepadId, async (newVal, oldVal) => {
   if (newVal !== oldVal) {
     await stop_main_thread();
-    await start_main_thread(newVal ? newVal : 0);
+    await start_main_thread(newVal ? newVal : 0, selectedFrameRate.value);
   }
 });
 
-async function start_main_thread(userId?: number | 0) {
-  return invoke<void>("start_update", { userId });
+async function start_main_thread(
+  userId?: number | 0,
+  frameRate: number = selectedFrameRate.value
+) {
+  return invoke<void>("start_update", { userId, frameRate });
 }
 
 async function stop_main_thread() {
@@ -351,5 +443,65 @@ async function fetchPollingRate() {
 
 .log-data {
   color: #ecf0f1;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  position: relative;
+}
+
+.settings {
+  position: relative;
+}
+
+.settings-button {
+  padding: 8px 16px;
+  background: #f0f0f0;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.settings-button:hover {
+  background: #e0e0e0;
+}
+
+.settings-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  z-index: 100;
+  min-width: 160px;
+}
+
+.frame-rate-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.frame-rate-option {
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.frame-rate-option:hover {
+  background: #f0f0f0;
+}
+
+.frame-rate-option.selected {
+  background: #42b983;
+  color: white;
 }
 </style>

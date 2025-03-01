@@ -1,16 +1,11 @@
-use std::{collections::{HashMap, HashSet}, sync::{atomic::AtomicBool, Arc}};
-use std::sync::Mutex;
-use std::thread::JoinHandle;
-use std::time::Duration;
+use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
-use tauri::Emitter;
 use libm::atan2;
 use crate::util::math_util::MathUtil;
 use crate::util::input_wrapper::{RawInput, XInput};
 
 const MAX_LOG_SIZE: usize = 1000;
 const CALCULATE_INTERVAL: usize = 100; // caluculate onece per 100 logs
-const POLLING_RATE_RETRIEVE_INTERVAL: u64 = 1; // microsecond
 const MAX_R: f64 = 32767.0f64; // 最大圆半径
 #[derive(Debug, Clone)]
 pub struct GamepadState {
@@ -209,7 +204,7 @@ pub struct PollingRateResult {
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]
-struct Direction {
+pub struct Direction {
     int_part: i64,
     frac_part: u64,
     precision: u32, // 记录精度方便后续比较和输出
@@ -229,46 +224,5 @@ impl Direction {
             precision,
         }
     }
-}
-
-#[tauri::command]
-pub fn start_update_thread(app_handle: tauri::AppHandle, state: Arc<Mutex<GamepadState>>, exit_flag: Arc<AtomicBool>) -> JoinHandle<()> {
-    let handle = std::thread::spawn(move || {
-        let mut last_emit_time = chrono::Utc::now().timestamp_micros();
-        let mut prev_axes: HashMap<u32, (f64, f64, f64, f64)> = HashMap::new();
-        loop {
-            if exit_flag.load(std::sync::atomic::Ordering::SeqCst) {
-                break;
-            }
-            {
-                let mut gamepad_state = state.lock().unwrap();
-                let gamepads = gamepad_state.get_xinput_gamepads();
-                let gamepads_vec: Vec<u32> = gamepad_state.cur_gamepads.iter().cloned().collect();
-                for i in gamepads_vec.iter() {
-                    gamepad_state.record_polling_rate(*i, true);
-                }
-                if chrono::Utc::now().timestamp_micros() - last_emit_time >= 10000_i64 {
-                    app_handle
-                        .emit("gamepads_info", gamepads.clone()).ok()
-                        .expect("failed to emit gamepads_info");
-                    app_handle
-                        .emit("polling_rate_log", gamepad_state.polling_rate_log.clone()).ok()
-                        .expect("failed to emit polling_rate_log");
-                    app_handle
-                        .emit("polling_rate_result", gamepad_state.polling_rate_result.clone()).ok()
-                        .expect("failed to emit polling_rate_result");
-                    last_emit_time = chrono::Utc::now().timestamp_millis();
-                }
-                let now_axes = gamepads.iter().map(|(k, v)|
-                    (*k, (v.axes.get("LeftThumbX").unwrap().value, v.axes.get("LeftThumbY").unwrap().value, v.axes.get("RightThumbX").unwrap().value, v.axes.get("RightThumbY").unwrap().value))).collect();
-                if now_axes != prev_axes {
-                    prev_axes = now_axes;
-                    println!("{:?}", prev_axes);
-                }
-            }
-            std::thread::sleep(Duration::from_micros(POLLING_RATE_RETRIEVE_INTERVAL));
-        }
-    });
-    handle
 }
 
