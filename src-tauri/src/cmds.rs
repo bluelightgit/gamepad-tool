@@ -3,6 +3,9 @@ use tauri::{AppHandle, Emitter};
 
 use crate::GamepadState;
 
+const DEFAULT_SLEEP_TIME: u64 = 1;
+const STANDBY_SLEEP_TIME: u64 = 10000;
+
 pub struct GlobalGamepadState {
     pub mutex_state: Arc<Mutex<GamepadState>>,
     /// 当值为 true 时，表示更新任务正在运行
@@ -46,7 +49,10 @@ pub fn start_update(app_handle: AppHandle, state: tauri::State<'_, GlobalGamepad
                 last_emit_time = chrono::Utc::now().timestamp_micros();
             }
             // println!("{:?}, FPS: {:?}", gamepad_state.get_record_log(user_id).last().unwrap(), frame_rate);
-            std::thread::sleep(Duration::from_micros(1));
+            if gamepad_state.cur_gamepads.len() == 0 {
+                std::thread::sleep(Duration::from_micros(STANDBY_SLEEP_TIME));
+            }
+            std::thread::sleep(Duration::from_micros(DEFAULT_SLEEP_TIME));
         }
     });
 }
