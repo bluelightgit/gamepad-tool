@@ -35,16 +35,18 @@ pub fn start_update(app_handle: AppHandle, state: tauri::State<'_, GlobalGamepad
         while cancel_flag.load(Ordering::SeqCst) {
             let mut gamepad_state = mutex_state.lock().unwrap();
             let gamepad = gamepad_state.get_xinput_gamepad(user_id);
-            gamepad_state.record_polling_rate(user_id, true);
+            gamepad_state.record(user_id, true);
+            let memo = gamepad_state.memo.get(&user_id).unwrap();
+            
             if chrono::Utc::now().timestamp_micros() - last_emit_time >= frame_interval {
                 app_handle
                     .emit("gamepads_info", gamepad.clone()).ok()
                     .expect("failed to emit gamepads_info");
                 app_handle
-                    .emit("polling_rate_log", gamepad_state.polling_rate_log.clone()).ok()
+                    .emit("polling_rate_log", memo.polling_rate_log.clone()).ok()
                     .expect("failed to emit polling_rate_log");
                 app_handle
-                    .emit("polling_rate_result", gamepad_state.polling_rate_result.clone()).ok()
+                    .emit("polling_rate_result", memo.polling_rate_result.clone()).ok()
                     .expect("failed to emit polling_rate_result");
                 last_emit_time = chrono::Utc::now().timestamp_micros();
             }

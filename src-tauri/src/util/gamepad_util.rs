@@ -11,10 +11,30 @@ const MAX_R: f64 = 32767.0f64; // 最大圆半径
 pub struct GamepadState {
     pub xinput_state: XInput,
     pub cur_gamepads: HashSet<u32>,
-    pub polling_rate_log: HashMap<u32, Vec<PollingRateLog>>, // user_index, (timestamp, (x, y))
-    pub polling_rate_result: HashMap<u32, PollingRateResult>, // user_index, (avg, min, max)
-    pub math_utils: HashMap<u32, MathUtil>,
-    pub direction_bins: HashMap<u32, (HashMap<Direction, u32>, HashMap<Direction, u32>)>, // user_index, (left(direction, max_radius), right(direction, max_radius))
+    // pub polling_rate_log: HashMap<u32, Vec<PollingRateLog>>, // user_index, (timestamp, (x, y))
+    // pub polling_rate_result: HashMap<u32, PollingRateResult>, // user_index, (avg, min, max)
+    // pub math_utils: HashMap<u32, MathUtil>,
+    // pub direction_bins: HashMap<u32, (HashMap<Direction, u32>, HashMap<Direction, u32>)>, // user_index, (left(direction, max_radius), right(direction, max_radius))
+    pub memo: HashMap<u32, Memo>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Memo {
+    pub polling_rate_log: Vec<PollingRateLog>,
+    pub polling_rate_result: PollingRateResult,
+    pub direction_bins: (HashMap<Direction, u32>, HashMap<Direction, u32>),
+    pub math_utils: MathUtil,
+}
+
+impl Memo {
+    pub fn new() -> Self {
+        Memo {
+            polling_rate_log: Vec::new(),
+            polling_rate_result: PollingRateResult::new(),
+            direction_bins: (HashMap::new(), HashMap::new()),
+            math_utils: MathUtil::new(),
+        }
+    }
 }
 
 impl GamepadState {
@@ -22,10 +42,7 @@ impl GamepadState {
         GamepadState {
             xinput_state: XInput::new(),
             cur_gamepads: HashSet::new(),
-            polling_rate_log: HashMap::new(),
-            polling_rate_result: HashMap::new(),
-            math_utils: HashMap::new(),
-            direction_bins: HashMap::new(),
+            memo: HashMap::new(),
         }
     }
 
@@ -91,32 +108,32 @@ impl GamepadState {
         let cur: HashSet<u32> = self.xinput_state.all_device_id().iter().cloned().collect();
         if cur != self.cur_gamepads {
             self.cur_gamepads = cur.clone();
-            self.polling_rate_log.clear();
-            self.polling_rate_result.clear();
-            self.math_utils.clear();
+            self.memo.clear();
         }
         cur
     }
 
     pub fn get_polling_rate(&mut self, user_index: u32) -> PollingRateResult {
-        let logs = self.polling_rate_log.get(&user_index).unwrap();
-        let math_util = self.math_utils.entry(user_index).or_insert(MathUtil::new());
+        let memo = self.memo.entry(user_index).or_insert(Memo::new());
+        let logs = &memo.polling_rate_log;
+        let math_util = &mut memo.math_utils;
         let result = math_util.calc_frequency(logs.iter().map(|log| (log.timestamp as i64, log.xyxy.clone())).collect()).unwrap();
         let polling_rate_result = PollingRateResult {
             polling_rate_avg: result.0,
             polling_rate_min: result.1,
             polling_rate_max: result.2,
             avg_interval: result.3,
-            avg_error_l: self.calc_avg_error(self.direction_bins.get(&user_index).unwrap().0.clone()),
-            avg_error_r: self.calc_avg_error(self.direction_bins.get(&user_index).unwrap().1.clone()),
+            avg_error_l: calc_avg_error(memo.direction_bins.0.clone()),
+            avg_error_r: calc_avg_error(memo.direction_bins.1.clone()),
         };
-        self.polling_rate_result.insert(user_index, polling_rate_result.clone());
+        memo.polling_rate_result = polling_rate_result.clone();
         polling_rate_result
     }
 
-    pub fn record_polling_rate(&mut self, user_index: u32, is_filter_duplicate: bool) -> PollingRateLog {
-        let logs = self.polling_rate_log.entry(user_index).or_insert(Vec::new());
-        let direction_log = self.direction_bins.entry(user_index).or_insert((HashMap::new(), HashMap::new()));
+    pub fn record(&mut self, user_index: u32, is_filter_duplicate: bool) -> PollingRateLog {
+        let memo = self.memo.entry(user_index).or_insert(Memo::new());
+        let logs = &mut memo.polling_rate_log;
+        let direction_log = &mut memo.direction_bins;
         self.xinput_state.update(user_index);
         let xyxy = self.xinput_state.get_axis_val().unwrap();
         let log = PollingRateLog {
@@ -150,16 +167,16 @@ impl GamepadState {
         log
     }
 
-    fn calc_avg_error<T>(&self, dir_bin: HashMap<T, u32>) -> f64 {
-        let length = dir_bin.len();
-        let n = if length == 0 { 1 } else { length } as f64;
-        let sum = dir_bin.iter().map(|(_, v)| v).sum::<u32>() as f64;
-        1.0f64 - ((sum / n) / MAX_R)
-    }
-
     pub fn get_record_log(&self, user_index: u32) -> Vec<PollingRateLog> {
-        self.polling_rate_log.get(&user_index).unwrap().clone()
+        self.memo.get(&user_index).unwrap().polling_rate_log.clone()
     }
+}
+
+fn calc_avg_error<T>(dir_bin: HashMap<T, u32>) -> f64 {
+    let length = dir_bin.len();
+    let n = if length == 0 { 1 } else { length } as f64;
+    let sum = dir_bin.iter().map(|(_, v)| v).sum::<u32>() as f64;
+    1.0f64 - ((sum / n) / MAX_R)
 }
 
 #[derive(Serialize, Debug, Deserialize, Clone)]
@@ -201,6 +218,19 @@ pub struct PollingRateResult {
     pub avg_interval: f64,
     pub avg_error_l: f64,
     pub avg_error_r: f64,
+}
+
+impl PollingRateResult {
+    pub fn new() -> Self {
+        PollingRateResult {
+            polling_rate_avg: 0.0,
+            polling_rate_min: 0.0,
+            polling_rate_max: 0.0,
+            avg_interval: 0.0,
+            avg_error_l: 0.0,
+            avg_error_r: 0.0,
+        }
+    }
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]

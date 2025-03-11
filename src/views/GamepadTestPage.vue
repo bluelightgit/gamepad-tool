@@ -171,9 +171,22 @@ interface PollingRateResult {
   avg_error_l: number;
 }
 
+interface PollingRateLog {
+  timestamp: number;
+  xyxy: [number, number, number, number]; // 表示(x1, y1, x2, y2)
+}
+
+interface JoystickLevelsData {
+  leftLevelCount: number;   // 左摇杆X轴分级数量
+  rightLevelCount: number;  // 右摇杆X轴分级数量
+  leftValues: number[];     // 左摇杆X轴所有不同值
+  rightValues: number[];    // 右摇杆X轴所有不同值
+}
+
 const selectedGamepad = ref<GamepadInfo>();
 const selectedGamepadId = ref(0);
 const pollingRateData = ref<Record<string, PollingRateResult | null>>({});
+const joystickLevelsData = ref<Record<string, JoystickLevelsData | null>>({});
 const isSettingsMenuOpen = ref(false);
 const selectedFrameRate = ref(60);
 const frameRateOptions = [30, 60, 120, 180];
@@ -199,6 +212,9 @@ const fixedButtonOrder = [
 const selectedPollingRateData = computed(() =>
   selectedGamepad.value ? pollingRateData.value[selectedGamepadId.value] : null
 );
+const selectedJoystickLevelsData = computed(() =>
+  selectedGamepad.value ? joystickLevelsData.value[selectedGamepadId.value] : null
+);
 const gamepadIds = ref<number[]>([]);
 
 const getButtonValue = (buttonKey: string) =>
@@ -218,7 +234,12 @@ onMounted(async () => {
     selectedGamepadId.value ? selectedGamepadId.value : 0,
     selectedFrameRate.value
   );
-  await Promise.all([fetchGamepads(), fetchPollingRate()]);
+  await Promise.all([
+    fetchGamepads(), 
+    fetchPollingRate(),
+    fetchPollingRateLog(),
+    fetchJoystickLevels()
+  ]);
 });
 
 const toggleSettingsMenu = () => {
@@ -268,7 +289,36 @@ async function fetchGamepads() {
 
 async function fetchPollingRate() {
   listen("polling_rate_result", (event) => {
-    pollingRateData.value = event.payload as Record<string, PollingRateResult>;
+    const result = event.payload as PollingRateResult;
+    const userId = selectedGamepadId.value.toString();
+    pollingRateData.value = { 
+      [userId]: result 
+    };
+  });
+}
+
+async function fetchPollingRateLog() {
+  listen("polling_rate_log", (event) => {
+    const logs = event.payload as PollingRateLog[];
+  });
+}
+
+async function fetchJoystickLevels() {
+  listen("joystick_levels", (event) => {
+    // 根据新的后端数据结构调整
+    // 数据格式现在是直接的元组(leftCount, rightCount, leftValues[], rightValues[])
+    const [leftCount, rightCount, leftValues, rightValues] = event.payload as [number, number, number[], number[]];
+    
+    // 为当前选中的用户ID创建数据条目
+    const userId = selectedGamepadId.value.toString();
+    joystickLevelsData.value = {
+      [userId]: {
+        leftLevelCount: leftCount,
+        rightLevelCount: rightCount,
+        leftValues,
+        rightValues
+      }
+    };
   });
 }
 </script>
