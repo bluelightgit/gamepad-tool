@@ -20,6 +20,7 @@ pub fn run() {
             cmds::start_update,
             cmds::stop_update,
             cmds::get_gamepad_ids,
+            cmds::set_log_size,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application");

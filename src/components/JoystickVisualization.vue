@@ -6,6 +6,25 @@
         <line x1="90" y1="5" x2="90" y2="175" stroke="#ddd" stroke-width="2" />
         <line x1="5" y1="90" x2="175" y2="90" stroke="#ddd" stroke-width="2" />
         <circle cx="90" cy="90" r="85" stroke="#ddd" stroke-width="2" fill="none" />
+        <path 
+          v-if="showHistory && pathData" 
+          :d="pathData" 
+          fill="none" 
+          stroke="#ff6b6b" 
+          stroke-width="1.5" 
+          opacity="0.1"
+        />
+        <g v-if="showHistory">
+          <circle
+            v-for="(point, index) in historyPoints"
+            :key="index"
+            :cx="90 + point.x * 85"
+            :cy="90 - point.y * 85"
+            :r="2"
+            :fill="getPointColor(index)"
+            :opacity="getPointOpacity(index)"
+          />
+        </g>
         <line
             :x1="90"
             :y1="90"
@@ -45,9 +64,16 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
+interface HistoryPoint {
+  x: number;
+  y: number;
+}
+
 const props = defineProps<{
   axisX: number;
   axisY: number;
+  historyPoints?: HistoryPoint[];
+  showHistory?: boolean;
 }>();
 
 const yAxisStyle = computed(() => ({
@@ -61,6 +87,30 @@ const xAxisStyle = computed(() => ({
   left: props.axisX > 0 ? '50%' : `${50 - Math.abs(props.axisX) * 50}%`,
   backgroundColor: '#42b983',
 }));
+
+const pathData = computed(() => {
+  if (!props.historyPoints || props.historyPoints.length < 2) return null;
+  
+  return props.historyPoints.reduce((path, point, index) => {
+    const x = 90 + point.x * 85;
+    const y = 90 - point.y * 85;
+    
+    return index === 0 ? `M ${x} ${y}` : `${path} L ${x} ${y}`;
+  }, '');
+});
+
+const getPointColor = (index: number) => {
+  const historyLength = props.historyPoints?.length || 1;
+  if (index === historyLength - 1) {
+    return '#ff4757';
+  }
+  return '#ff6b6b';
+};
+
+const getPointOpacity = (index: number) => {
+  const historyLength = props.historyPoints?.length || 1;
+  return 0.2 + (index / historyLength) * 0.8;
+};
 
 const formatAxisValue = (value: number) => value.toFixed(6);
 </script>

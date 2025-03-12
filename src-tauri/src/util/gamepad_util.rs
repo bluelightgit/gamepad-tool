@@ -11,10 +11,6 @@ const MAX_R: f64 = 32767.0f64; // 最大圆半径
 pub struct GamepadState {
     pub xinput_state: XInput,
     pub cur_gamepads: HashSet<u32>,
-    // pub polling_rate_log: HashMap<u32, Vec<PollingRateLog>>, // user_index, (timestamp, (x, y))
-    // pub polling_rate_result: HashMap<u32, PollingRateResult>, // user_index, (avg, min, max)
-    // pub math_utils: HashMap<u32, MathUtil>,
-    // pub direction_bins: HashMap<u32, (HashMap<Direction, u32>, HashMap<Direction, u32>)>, // user_index, (left(direction, max_radius), right(direction, max_radius))
     pub memo: HashMap<u32, Memo>,
 }
 
@@ -24,6 +20,7 @@ pub struct Memo {
     pub polling_rate_result: PollingRateResult,
     pub direction_bins: (HashMap<Direction, u32>, HashMap<Direction, u32>),
     pub math_utils: MathUtil,
+    pub log_size: usize,
 }
 
 impl Memo {
@@ -33,6 +30,7 @@ impl Memo {
             polling_rate_result: PollingRateResult::new(),
             direction_bins: (HashMap::new(), HashMap::new()),
             math_utils: MathUtil::new(),
+            log_size: MAX_LOG_SIZE,
         }
     }
 }
@@ -154,7 +152,7 @@ impl GamepadState {
         }
 
         // 限制日志长度
-        if logs.len() > MAX_LOG_SIZE {
+        if logs.len() > memo.log_size {
             logs.drain(0..=CALCULATE_INTERVAL);
             // logs.remove(0);
         }
@@ -169,6 +167,12 @@ impl GamepadState {
 
     pub fn get_record_log(&self, user_index: u32) -> Vec<PollingRateLog> {
         self.memo.get(&user_index).unwrap().polling_rate_log.clone()
+    }
+
+    pub fn set_log_size(&mut self, log_size: usize) {
+        self.memo.iter_mut().for_each(|(_, memo)| {
+            memo.log_size = log_size;
+        });
     }
 }
 

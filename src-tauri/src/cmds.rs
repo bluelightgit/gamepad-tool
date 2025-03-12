@@ -71,3 +71,10 @@ pub fn get_gamepad_ids(state: tauri::State<'_, GlobalGamepadState>) -> Vec<u32> 
     ids.sort();
     ids
 }
+
+#[tauri::command]
+pub fn set_log_size(state: tauri::State<'_, GlobalGamepadState>, log_size: usize) {
+    let mut gamepad_state = state.mutex_state.lock().unwrap();
+    gamepad_state.set_log_size(log_size);
+}
+
