@@ -165,10 +165,6 @@ impl GamepadState {
         log
     }
 
-    pub fn get_record_log(&self, user_index: u32) -> Vec<PollingRateLog> {
-        self.memo.get(&user_index).unwrap().polling_rate_log.clone()
-    }
-
     pub fn set_log_size(&mut self, log_size: usize) {
         self.memo.iter_mut().for_each(|(_, memo)| {
             memo.log_size = log_size;
@@ -181,6 +177,21 @@ fn calc_avg_error<T>(dir_bin: HashMap<T, u32>) -> f64 {
     let n = if length == 0 { 1 } else { length } as f64;
     let sum = dir_bin.iter().map(|(_, v)| v).sum::<u32>() as f64;
     1.0f64 - ((sum / n) / MAX_R)
+}
+
+pub fn polling_rate_log_to_output_log(logs: &Vec<PollingRateLog>) -> Vec<OutputLog> {
+    logs.iter().map(|log| {
+        let xyxy = log.xyxy;
+        OutputLog {
+            timestamp: log.timestamp,
+            xyxy: (
+                xyxy.0 as f64 / MAX_R,
+                xyxy.1 as f64 / MAX_R,
+                xyxy.2 as f64 / MAX_R,
+                xyxy.3 as f64 / MAX_R,
+            ),
+        }
+    }).collect()
 }
 
 #[derive(Serialize, Debug, Deserialize, Clone)]
@@ -212,6 +223,12 @@ pub struct GamepadInfo {
 pub struct PollingRateLog {
     pub timestamp: u64,
     pub xyxy: (i16, i16, i16, i16),
+}
+
+#[derive(Serialize, Debug, Deserialize, Clone)]
+pub struct OutputLog {
+    pub timestamp: u64,
+    pub xyxy: (f64, f64, f64, f64),
 }
 
 #[derive(Serialize, Debug, Deserialize, Clone)]

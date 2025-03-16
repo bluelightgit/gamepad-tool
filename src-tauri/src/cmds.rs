@@ -1,7 +1,7 @@
 use std::{sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, time::Duration};
 use tauri::{AppHandle, Emitter};
 
-use crate::GamepadState;
+use crate::{util::gamepad_util::{self, polling_rate_log_to_output_log}, GamepadState};
 
 const DEFAULT_SLEEP_TIME: u64 = 1;
 const STANDBY_SLEEP_TIME: u64 = 10000;
@@ -43,7 +43,7 @@ pub fn start_update(app_handle: AppHandle, state: tauri::State<'_, GlobalGamepad
                     .emit("gamepads_info", gamepad.clone()).ok()
                     .expect("failed to emit gamepads_info");
                 app_handle
-                    .emit("polling_rate_log", memo.polling_rate_log.clone()).ok()
+                    .emit("polling_rate_log", polling_rate_log_to_output_log(&memo.polling_rate_log)).ok()
                     .expect("failed to emit polling_rate_log");
                 app_handle
                     .emit("polling_rate_result", memo.polling_rate_result.clone()).ok()

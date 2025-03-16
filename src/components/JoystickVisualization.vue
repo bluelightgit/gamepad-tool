@@ -6,13 +6,25 @@
         <line x1="90" y1="5" x2="90" y2="175" stroke="#ddd" stroke-width="2" />
         <line x1="5" y1="90" x2="175" y2="90" stroke="#ddd" stroke-width="2" />
         <circle cx="90" cy="90" r="85" stroke="#ddd" stroke-width="2" fill="none" />
+        <!-- 历史点路径 -->
         <path 
-          v-if="showHistory && pathData" 
-          :d="pathData" 
+          v-if="showHistory && historyPathData" 
+          :d="historyPathData" 
           fill="none" 
           stroke="#ff6b6b" 
           stroke-width="1.5" 
           opacity="0.1"
+        />
+        <!-- 当前点到最新历史点的连接线 -->
+        <line
+          v-if="showHistory && historyPoints && historyPoints.length > 0"
+          :x1="90 + axisX * 85"
+          :y1="90 - axisY * 85"
+          :x2="90 + (historyPoints[historyPoints.length - 1]?.x || 0) * 85"
+          :y2="90 - (historyPoints[historyPoints.length - 1]?.y || 0) * 85"
+          stroke="#ff4757"
+          stroke-width="1.5"
+          stroke-dasharray="4,2"
         />
         <g v-if="showHistory">
           <circle
@@ -88,7 +100,8 @@ const xAxisStyle = computed(() => ({
   backgroundColor: '#42b983',
 }));
 
-const pathData = computed(() => {
+// 修改为仅连接历史点
+const historyPathData = computed(() => {
   if (!props.historyPoints || props.historyPoints.length < 2) return null;
   
   return props.historyPoints.reduce((path, point, index) => {
@@ -144,7 +157,7 @@ const formatAxisValue = (value: number) => value.toFixed(6);
 
 .bar-fill {
   position: absolute;
-  //transition: all 0.01s ease;
+  transition: all 0.01s ease;
 }
 
 .y-axis-bar .bar-fill {

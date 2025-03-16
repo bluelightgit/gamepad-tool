@@ -1,8 +1,22 @@
 <template>
   <main class="container">
     <div class="gamepad-test">
+      <div class="gamepad-tabs">
+        <div 
+          v-for="id in [0, 1, 2, 3]" 
+          :key="id"
+          class="gamepad-tab"
+          :class="{ 
+            'active': selectedGamepadId === id,
+            'disabled': !isGamepadAvailable(id)
+          }"
+          @click="isGamepadAvailable(id) && selectGamepad(id)"
+        >
+          <span>Gamepad {{ id }}</span>
+        </div>
+      </div>
       <div class="header">
-        <h1>Gamepad Test</h1>
+        <h1></h1>
         <div class="settings">
           <button class="settings-button" @click="toggleSettingsMenu">
             ⚙️ Settings
@@ -67,28 +81,14 @@
 
       <!-- 添加应用状态显示 -->
       <div v-if="isInitializing" class="status-message loading">
-        <p>正在初始化应用程序，请稍候...</p>
+        <p>Initializing application, please wait...</p>
       </div>
       <div v-if="hasInitError" class="status-message error">
-        <p>初始化出现错误: {{ initErrorMsg }}</p>
-        <button @click="retryInitialization" class="retry-button">重试</button>
+        <p>Initialization error: {{ initErrorMsg }}</p>
+        <button @click="retryInitialization" class="retry-button">Retry</button>
       </div>
 
       <div class="selector">
-        <label for="gamepad-select">Select Gamepad:</label>
-        <select
-          id="gamepad-select"
-          v-model="selectedGamepadId"
-          @click="updateGamepadIds"
-        >
-          <option
-            v-for="gamepadId in gamepadIds"
-            :key="gamepadId"
-            :value="gamepadId"
-          >
-            {{ gamepadId }}
-          </option>
-        </select>
 
         <div v-if="selectedGamepad" class="gamepad-info">
           <h2>{{ selectedGamepad.name }}</h2>
@@ -135,8 +135,8 @@
                   @click="toggleHistoryPoints"
                   :class="{ active: showHistoryPoints }"
                 >
-                  {{ showHistoryPoints ? '隐藏轨迹' : '显示轨迹' }}
-                </button>
+                {{ showHistoryPoints ? 'Hide Trajectory' : 'Show Trajectory' }}
+              </button>
               </div>
               <div class="joystick-group">
                 <JoystickVisualization
@@ -156,40 +156,35 @@
 
             <!-- 轮询率数据 -->
             <div class="polling-rate-area">
+              <h3>Polling Rate Data</h3>
               <div v-if="selectedPollingRateData" class="polling-rate-data">
                 <p>
-                  Avg:
-                  {{
-                    formatNumber(selectedPollingRateData.polling_rate_avg)
-                  }}
-                  Hz
+                  <span>Average Rate:</span>
+                  <span>{{ formatNumber(selectedPollingRateData.polling_rate_avg) }} Hz</span>
                 </p>
                 <p>
-                  Min:
-                  {{
-                    formatNumber(selectedPollingRateData.polling_rate_min)
-                  }}
-                  Hz
+                  <span>Min Rate:</span>
+                  <span>{{ formatNumber(selectedPollingRateData.polling_rate_min) }} Hz</span>
                 </p>
                 <p>
-                  Max:
-                  {{
-                    formatNumber(selectedPollingRateData.polling_rate_max)
-                  }}
-                  Hz
+                  <span>Max Rate:</span>
+                  <span>{{ formatNumber(selectedPollingRateData.polling_rate_max) }} Hz</span>
                 </p>
                 <p>
-                  Avg Interval:
-                  {{ formatNumber(selectedPollingRateData.avg_interval) }} ms
+                  <span>Avg Interval:</span>
+                  <span>{{ formatNumber(selectedPollingRateData.avg_interval) }} ms</span>
                 </p>
                 <p>
-                  Error(L):
-                  {{ formatNumber(selectedPollingRateData.avg_error_l) }} %
+                  <span>Error (L):</span>
+                  <span>{{ formatNumber(selectedPollingRateData.avg_error_l) }} %</span>
                 </p>
                 <p>
-                  Error(R):
-                  {{ formatNumber(selectedPollingRateData.avg_error_r) }} %
+                  <span>Error (R):</span>
+                  <span>{{ formatNumber(selectedPollingRateData.avg_error_r) }} %</span>
                 </p>
+              </div>
+              <div v-else class="polling-rate-data empty">
+                <p class="no-data">No polling rate data available</p>
               </div>
             </div>
           </div>
@@ -254,6 +249,11 @@ interface JoystickLevelsData {
   rightValues: number[];    // 右摇杆X轴所有不同值
 }
 
+interface OutputLog {
+  timestamp: number;
+  xyxy: [number, number, number, number]; // 已经缩放到-1至1范围的(x1, y1, x2, y2)
+}
+
 const selectedGamepad = ref<GamepadInfo>(createDefaultGamepad());
 const selectedGamepadId = ref(0);
 const pollingRateData = ref<Record<string, PollingRateResult | null>>({
@@ -267,7 +267,7 @@ const selectedLogSize = ref(2000);
 const showHistoryPoints = ref(false);
 const leftJoystickHistory = ref<HistoryPoint[]>([]);
 const rightJoystickHistory = ref<HistoryPoint[]>([]);
-const maxHistoryPoints = selectedLogSize.value / 10;
+const maxHistoryPoints = selectedLogSize.value / 5;
 const frameRateOptions = [30, 60, 120, 180];
 const logSizeOptions = [1000, 2000, 4000, 8000];
 const fixedButtonOrder = [
@@ -306,7 +306,16 @@ const formatButtonValue = (buttonKey: string) =>
 const getAxisValue = (axisKey: string) =>
   selectedGamepad.value?.axes[axisKey]?.value || 0;
 const formatNumber = (value: number) => value.toFixed(2);
+const isGamepadAvailable = (id: number): boolean => {
+  return gamepadIds.value.includes(id);
+};
 
+// 添加选择手柄的函数
+const selectGamepad = (id: number) => {
+  if (selectedGamepadId.value !== id) {
+    selectedGamepadId.value = id;
+  }
+};
 // 添加初始化状态变量
 const isInitializing = ref(true);
 const hasInitError = ref(false);
@@ -344,6 +353,16 @@ onMounted(async () => {
     
     console.log("Initialization complete");
     isInitializing.value = false;
+
+    // 添加定时更新手柄状态
+    const statusUpdateInterval = setInterval(async () => {
+      await updateGamepadIds();
+    }, 1000); // 每3秒更新一次
+    
+    // 组件卸载时清除定时器
+    // onUnmounted(() => {
+    //   clearInterval(statusUpdateInterval);
+    // });
   } catch (error) {
     console.error("Error during initialization:", error);
     hasInitError.value = true;
@@ -386,6 +405,7 @@ watch(selectedGamepadId, async (newVal, oldVal) => {
     // 确保在重新启动时应用当前日志大小设置
     await set_log_size(selectedLogSize.value);
     await start_main_thread(newVal ? newVal : 0, selectedFrameRate.value);
+    updateGamepadIds();
   }
 });
 
@@ -423,15 +443,18 @@ async function updateGamepadIds() {
       gamepadIds.value = [0];
     }
     
-    // 如果当前选定的ID不在列表中，选择第一个ID
-    if (gamepadIds.value.length > 0 && !gamepadIds.value.includes(selectedGamepadId.value)) {
+    // 如果当前选定的ID不在列表中，选择第一个可用的ID
+    if (!gamepadIds.value.includes(selectedGamepadId.value)) {
       console.log(`Selected ID ${selectedGamepadId.value} not in list, selecting first ID`);
       selectedGamepadId.value = gamepadIds.value[0];
     }
+    
+    return ids;
   } catch (error) {
     console.error("Error in updateGamepadIds:", error);
     // 如果出错，添加默认ID
     gamepadIds.value = [0];
+    return [0];
   }
 }
 
@@ -481,43 +504,40 @@ async function set_log_size(log_size: number) {
   }
 }
 
+let lastHistoryUpdateTime = 0;
+const THROTTLE_INTERVAL = 16;
+
 async function fetchPollingRateLog() {
   try {
     console.log("Setting up polling_rate_log event listener");
     listen("polling_rate_log", (event) => {
-      console.log("Received polling_rate_log event");
-      // 省略现有的处理逻辑...
-      const logs = event.payload as PollingRateLog[];
+      const now = performance.now();
+      const logs = event.payload as OutputLog[];
       
       // 如果开启了历史轨迹显示，则存储坐标点
-      if (showHistoryPoints.value && logs && logs.length > 0) {
-        // 遍历日志点（限制数量以避免性能问题）
-        const maxProcessLogs = 10; // 一次性处理的最大点数
+      if (showHistoryPoints.value && logs && logs.length > 0
+          && now - lastHistoryUpdateTime > THROTTLE_INTERVAL
+      ) {
+        lastHistoryUpdateTime = now;
+        const maxProcessLogs = 10;
         const recentLogs = logs.slice(-maxProcessLogs);
         
         for (const log of recentLogs) {
-          // 将原始值（通常是 -32768 到 32767）转换为 -1 到 1 的范围
-          const normalizeAxis = (value: number) => {
-            // 确保数值有效
-            if (typeof value !== 'number' || isNaN(value)) return 0;
-            return Math.max(-1, Math.min(1, value / 32767));
-          };
-          
           try {
             // 确保 xyxy 是有效的数组
-            if (Array.isArray(log.xyxy) && log.xyxy.length >= 4) {
-              // 添加新的坐标点
+            if (log.xyxy && typeof log.xyxy === 'object') {
+              // 添加新的坐标点 - 直接使用后端已经缩放的值
               const newLeftPoint: HistoryPoint = {
-                x: normalizeAxis(log.xyxy[0]),
-                y: normalizeAxis(log.xyxy[1])
+                x: log.xyxy[0],
+                y: log.xyxy[1]
               };
               
               const newRightPoint: HistoryPoint = {
-                x: normalizeAxis(log.xyxy[2]),
-                y: normalizeAxis(log.xyxy[3])
+                x: log.xyxy[2],
+                y: log.xyxy[3]
               };
               
-              // 检查点是否有效（避免添加0,0点）
+              // 检查点是否有效（避免添加接近原点的点）
               const isValidPoint = (point: HistoryPoint) => 
                 Math.abs(point.x) > 0.01 || Math.abs(point.y) > 0.01;
               
@@ -600,9 +620,9 @@ const setLogSize = async (size: number) => {
 function createDefaultGamepad(id: number = 0): GamepadInfo {
   return {
     id,
-    name: "加载中...",
+    name: "Loading...",
     guid: "",
-    power_info: "未知",
+    power_info: "Unknown",
     axes: {
       "LeftThumbX": { axis: "LeftThumbX", value: 0 },
       "LeftThumbY": { axis: "LeftThumbY", value: 0 },
@@ -688,6 +708,54 @@ const retryInitialization = async () => {
   background-color: #f0f0f0;
 }
 
+.gamepad-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 20px;
+  background-color: #f0f0f0;
+  padding: 0 4px;
+  border-bottom: 1px solid #ddd;
+}
+
+.gamepad-tab {
+  position: relative;
+  padding: 12px 24px;
+  background-color: #e9e9e9;
+  border-radius: 8px 8px 0 0;
+  border: 1px solid #ddd;
+  border-bottom: none;
+  font-weight: 500;
+  color: #555;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-bottom: -1px; /* 让激活的标签下边框覆盖容器的下边框 */
+  z-index: 1;
+  box-shadow: 0 -2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.gamepad-tab.active {
+  background-color: #fff;
+  color: #42b983;
+  border-bottom: 1px solid #fff;
+  z-index: 2;
+  box-shadow: 0 -3px 6px rgba(0, 0, 0, 0.1);
+}
+
+.gamepad-tab.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background-color: #f5f5f5;
+  color: #aaa;
+}
+
+.gamepad-tab:hover:not(.disabled) {
+  background-color: #f4f4f4;
+}
+
+.gamepad-tab.active:hover {
+  background-color: #fff;
+}
+
 .gamepad-test {
   max-width: 1200px;
   margin: 20px auto;
@@ -709,7 +777,8 @@ const retryInitialization = async () => {
 
 .buttons-area,
 .axes-area {
-  flex: 1;
+  flex: 4;
+  min-width: 360px;
 }
 
 .buttons-grid {
@@ -794,61 +863,49 @@ const retryInitialization = async () => {
   text-align: left;
 }
 
-.polling-rate-area button {
-  padding: 10px 20px;
-  font-size: 1em;
-  cursor: pointer;
-  background-color: #42b983;
-  color: white;
-  border: none;
-  border-radius: 5px;
-}
-
 .polling-rate-data {
+  width: 80%;
   margin-top: 10px;
   background: #f9f9f9;
-  padding: 10px;
+  padding: 15px;
   border: 1px solid #ddd;
   border-radius: 6px;
-  justify-content: left;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0; /* 移除最小高度限制 */
 }
 
-.log-area {
-  margin-top: 20px;
-  background-color: #2c3e50;
-  color: #ecf0f1;
-  padding: 10px;
-  border-radius: 6px;
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.log-area h3 {
-  margin-bottom: 10px;
-  font-size: 1em;
-}
-
-.log-list {
-  font-size: 0.8em;
-}
-
-.log-item {
+.polling-rate-data p {
+  margin: 0;
+  padding: 4px 0;
   display: flex;
   justify-content: space-between;
-  padding: 4px 0;
-  border-bottom: 1px solid #34495e;
+  align-items: center;
+  border-bottom: 1px solid #eee;
 }
 
-.log-item:last-child {
+.polling-rate-data p:last-child {
   border-bottom: none;
 }
 
-.log-timestamp {
-  color: #bdc3c7;
-}
-
-.log-data {
-  color: #ecf0f1;
+/* 添加媒体查询确保在小屏幕上的良好显示 */
+@media (max-width: 1100px) {
+  .layout-container {
+    flex-direction: column;
+  }
+  
+  .buttons-area,
+  .axes-area,
+  .polling-rate-area {
+    width: 100%;
+    min-width: 0;
+  }
+  
+  .polling-rate-area {
+    margin-top: 20px;
+  }
 }
 
 .header {
@@ -857,6 +914,36 @@ const retryInitialization = async () => {
   align-items: center;
   margin-bottom: 20px;
   position: relative;
+}
+
+.gamepad-info {
+  width: 100%;
+  min-width: 900px; /* 设置最小宽度确保内容不会太窄 */
+}
+
+.layout-container {
+  display: flex;
+  gap: 20px;
+  width: 100%;
+  min-height: 400px; /* 设置最小高度避免高度闪烁 */
+}
+
+.buttons-area,
+.axes-area,
+.polling-rate-area {
+  flex: 1;
+  min-width: 250px; /* 为每个区域设置最小宽度 */
+}
+
+/* 添加平滑过渡效果 */
+.gamepad-info,
+.layout-container,
+.buttons-area,
+.axes-area,
+.polling-rate-area,
+.polling-rate-data {
+  transition: all 0.2s ease;
+  box-sizing: border-box;
 }
 
 .settings {
