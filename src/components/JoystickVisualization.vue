@@ -138,7 +138,7 @@ const formatAxisValue = (value: number) => value.toFixed(6);
 }
 
 .x-axis-bar {
-  width: 170px;
+  width: 100%;
   height: 20px;
   position: relative;
   background-color: #f0f0f0;

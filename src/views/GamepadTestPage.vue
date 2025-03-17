@@ -41,7 +41,7 @@
             <!-- 日志大小二级菜单 -->
             <div class="settings-submenu" v-if="activeSubMenu === 'logSize'">
               <div class="submenu-header">
-                <button class="back-button" @click="hideSubMenu">← Back</button>
+                <button class="back-button" @click="hideSubMenu">⬅️</button>
                 <h4>Select Log Size</h4>
               </div>
               <div class="log-size-selector">
@@ -60,7 +60,7 @@
             <!-- 帧率二级菜单 -->
             <div class="settings-submenu" v-if="activeSubMenu === 'frameRate'">
               <div class="submenu-header">
-                <button class="back-button" @click="hideSubMenu">← Back</button>
+                <button class="back-button" @click="hideSubMenu">⬅️</button>
                 <h4>Select Frame Rate</h4>
               </div>
               <div class="frame-rate-selector">
@@ -92,8 +92,8 @@
 
         <div v-if="selectedGamepad" class="gamepad-info">
           <h2>{{ selectedGamepad.name }}</h2>
-          <p v-if="selectedGamepad.name === '加载中...'">
-            正在加载手柄数据，请稍候...
+          <p v-if="selectedGamepad.name === 'Loading...'">
+            Loading gamepad data, please wait...
           </p>
           <p v-else>Power Info: {{ selectedGamepad.power_info }}</p>
 
@@ -156,7 +156,7 @@
 
             <!-- 轮询率数据 -->
             <div class="polling-rate-area">
-              <h3>Polling Rate Data</h3>
+              <h3></h3>
               <div v-if="selectedPollingRateData" class="polling-rate-data">
                 <p>
                   <span>Average Rate:</span>
@@ -232,11 +232,6 @@ interface PollingRateResult {
   avg_error_l: number;
 }
 
-interface PollingRateLog {
-  timestamp: number;
-  xyxy: [number, number, number, number]; // 表示(x1, y1, x2, y2)
-}
-
 interface HistoryPoint {
   x: number;
   y: number;
@@ -292,9 +287,6 @@ const fixedButtonOrder = [
 const selectedPollingRateData = computed(() =>
   selectedGamepad.value ? pollingRateData.value[selectedGamepadId.value] : null
 );
-// const selectedJoystickLevelsData = computed(() =>
-//   selectedGamepad.value ? joystickLevelsData.value[selectedGamepadId.value] : null
-// );
 const gamepadIds = ref<number[]>([]);
 
 const getButtonValue = (buttonKey: string) =>
@@ -355,14 +347,9 @@ onMounted(async () => {
     isInitializing.value = false;
 
     // 添加定时更新手柄状态
-    const statusUpdateInterval = setInterval(async () => {
+    setInterval(async () => {
       await updateGamepadIds();
-    }, 1000); // 每3秒更新一次
-    
-    // 组件卸载时清除定时器
-    // onUnmounted(() => {
-    //   clearInterval(statusUpdateInterval);
-    // });
+    }, 1000);
   } catch (error) {
     console.error("Error during initialization:", error);
     hasInitError.value = true;
@@ -700,12 +687,13 @@ const retryInitialization = async () => {
 </script>
 
 <style scoped>
-.container {
+.container {  
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 20px;
+  padding: 0;
   background-color: #f0f0f0;
+  margin: 0;
 }
 
 .gamepad-tabs {
@@ -713,18 +701,19 @@ const retryInitialization = async () => {
   gap: 2px;
   margin-bottom: 20px;
   background-color: #f0f0f0;
-  padding: 0 4px;
+  padding: 4 4px;
   border-bottom: 1px solid #ddd;
+  width: 100%;
 }
 
 .gamepad-tab {
   position: relative;
-  padding: 12px 24px;
+  padding: 12px 12px;
   background-color: #e9e9e9;
   border-radius: 8px 8px 0 0;
   border: 1px solid #ddd;
   border-bottom: none;
-  font-weight: 500;
+  font-weight: 1800;
   color: #555;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -738,7 +727,7 @@ const retryInitialization = async () => {
   color: #42b983;
   border-bottom: 1px solid #fff;
   z-index: 2;
-  box-shadow: 0 -3px 6px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 -3px 6px rgba(0, 0, 0, 0.2);
 }
 
 .gamepad-tab.disabled {
@@ -757,28 +746,41 @@ const retryInitialization = async () => {
 }
 
 .gamepad-test {
-  max-width: 1200px;
-  margin: 20px auto;
+  max-width: 2400px;
+  /* width: 100%; */
+  margin: 0 auto;
   text-align: center;
   border: 1px solid #ddd;
-  padding: 15px;
+  padding: 10px;
   border-radius: 6px;
   background-color: #fff;
 }
 
-.selector {
-  margin-bottom: 20px;
-}
-
 .layout-container {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-areas: 
+    "buttons joysticks polling";
   gap: 20px;
+  width: 100%;
+  min-height: 400px;
 }
 
-.buttons-area,
+.buttons-area {
+  grid-area: buttons;
+  min-width: 250px;
+}
+
 .axes-area {
-  flex: 4;
-  min-width: 360px;
+  grid-area: joysticks;
+  min-width: 250px;
+}
+
+.polling-rate-area {
+  grid-area: polling;
+  min-width: 250px;
+  width: 100%;
+  margin-top: 10px;
 }
 
 .buttons-grid {
@@ -847,10 +849,6 @@ const retryInitialization = async () => {
   color: #666;
 }
 
-.axes-area {
-  flex: 1;
-}
-
 .joystick-group {
   display: flex;
   justify-content: center;
@@ -858,13 +856,8 @@ const retryInitialization = async () => {
   margin-top: 20px;
 }
 
-.polling-rate-area {
-  margin-top: 20px;
-  text-align: left;
-}
-
 .polling-rate-data {
-  width: 80%;
+  width: 100%;
   margin-top: 10px;
   background: #f9f9f9;
   padding: 15px;
@@ -874,7 +867,6 @@ const retryInitialization = async () => {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 0; /* 移除最小高度限制 */
 }
 
 .polling-rate-data p {
@@ -890,21 +882,63 @@ const retryInitialization = async () => {
   border-bottom: none;
 }
 
-/* 添加媒体查询确保在小屏幕上的良好显示 */
-@media (max-width: 1100px) {
+@media (max-width: 1200px) {
   .layout-container {
-    flex-direction: column;
-  }
-  
-  .buttons-area,
-  .axes-area,
-  .polling-rate-area {
-    width: 100%;
-    min-width: 0;
+    grid-template-columns: minmax(250px, 1fr) minmax(250px, 1fr);
+    grid-template-areas: 
+      "buttons joysticks"
+      "polling polling";
   }
   
   .polling-rate-area {
     margin-top: 20px;
+  }
+  
+  /* 中等屏幕下，polling-rate-data 区域的数据项采用水平排列，但内部数据垂直排列 */
+  .polling-rate-data {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    width: 100%;
+    max-width: 800px;
+    margin: 0 auto;
+  }
+  
+  .polling-rate-data p {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 8px;
+    border: 1px solid #eee;
+    border-radius: 4px;
+    background-color: #fcfcfc;
+    margin: 0;
+  }
+  
+  .polling-rate-data p span:first-child {
+    font-weight: bold;
+    margin-bottom: 4px;
+  }
+}
+
+@media (max-width: 800px) {
+  .layout-container {
+    grid-template-columns: 1fr;
+    grid-template-areas: 
+      "buttons"
+      "joysticks"
+      "polling";
+  }
+  
+  .polling-rate-data {
+    grid-template-columns: repeat(2, 1fr);
+    max-width: 100%;
+  }
+}
+
+/* 最小屏幕下的样式调整 */
+@media (max-width: 500px) {
+  .polling-rate-data {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -918,21 +952,9 @@ const retryInitialization = async () => {
 
 .gamepad-info {
   width: 100%;
-  min-width: 900px; /* 设置最小宽度确保内容不会太窄 */
-}
-
-.layout-container {
-  display: flex;
-  gap: 20px;
-  width: 100%;
-  min-height: 400px; /* 设置最小高度避免高度闪烁 */
-}
-
-.buttons-area,
-.axes-area,
-.polling-rate-area {
-  flex: 1;
-  min-width: 250px; /* 为每个区域设置最小宽度 */
+  min-width: 0;
+  max-width: none;
+  margin: 0 auto;
 }
 
 /* 添加平滑过渡效果 */
@@ -1008,16 +1030,21 @@ const retryInitialization = async () => {
 
 .back-button {
   background: none;
-  border: none;
+  border: 1px solid #ababab;
+  width: 25px;
+  height: 25px;
+  border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
-  padding: 4px 8px;
-  margin-right: 8px;
+  font-size: 25px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   color: #666;
 }
 
 .back-button:hover {
   color: #333;
+  border: 7px solid #ffffff;
 }
 
 .frame-rate-selector,
