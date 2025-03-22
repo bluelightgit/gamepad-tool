@@ -2,8 +2,8 @@ name: 'publish'
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - master
   workflow_dispatch:
 jobs:
   publish-tauri:
@@ -58,24 +58,3 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
-
-      - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref_name }}
-          release_name: Release ${{ github.ref_name }}
-          draft: false
-          prerelease: false
-
-      - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./src-tauri/target/release/bundle/nsis
-          asset_name: gamepad-tool_${{ github.ref_name }}_x64-setup.exe
-          asset_content_type: application/octet-stream
