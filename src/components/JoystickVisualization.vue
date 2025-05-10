@@ -1,59 +1,7 @@
 <template>
   <div class="joystick-container">
-    <div class="joystick-area">
-      <svg width="180" height="180">
-        <rect x="5" y="5" width="170" height="170" stroke="#ddd" stroke-width="2" fill="none" />
-        <line x1="90" y1="5" x2="90" y2="175" stroke="#ddd" stroke-width="2" />
-        <line x1="5" y1="90" x2="175" y2="90" stroke="#ddd" stroke-width="2" />
-        <circle cx="90" cy="90" r="85" stroke="#ddd" stroke-width="2" fill="none" />
-        <!-- 历史点路径 -->
-        <path 
-          v-if="showHistory && historyPathData" 
-          :d="historyPathData" 
-          fill="none" 
-          stroke="#ff6b6b" 
-          stroke-width="1.5" 
-          opacity="0.1"
-        />
-        <!-- 当前点到最新历史点的连接线 -->
-        <line
-          v-if="showHistory && historyPoints && historyPoints.length > 0"
-          :x1="90 + axisX * 85"
-          :y1="90 - axisY * 85"
-          :x2="90 + (historyPoints[historyPoints.length - 1]?.x || 0) * 85"
-          :y2="90 - (historyPoints[historyPoints.length - 1]?.y || 0) * 85"
-          stroke="#ff4757"
-          stroke-width="1.5"
-          stroke-dasharray="4,2"
-        />
-        <g v-if="showHistory">
-          <circle
-            v-for="(point, index) in historyPoints"
-            :key="index"
-            :cx="90 + point.x * 85"
-            :cy="90 - point.y * 85"
-            :r="2"
-            :fill="getPointColor(index)"
-            :opacity="getPointOpacity(index)"
-          />
-        </g>
-        <line
-            :x1="90"
-            :y1="90"
-            :x2="90 + axisX * 85"
-            :y2="90 - axisY * 85"
-            stroke="gray"
-            stroke-width="1"
-        />
-        <circle
-            :cx="90 + axisX * 85"
-            :cy="90 - axisY * 85"
-            r="5"
-            fill="gray"
-        />
-      </svg>
-    </div>
-
+    <canvas ref="canvas" width="180" height="180" class="joystick-canvas"></canvas>
+     
     <div class="x-axis-bar">
       <div class="bar-background"></div>
       <div
@@ -74,7 +22,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch, onMounted } from "vue";
 
 interface HistoryPoint {
   x: number;
@@ -88,6 +36,72 @@ const props = defineProps<{
   showHistory?: boolean;
 }>();
 
+// canvas reference and 2D context
+const canvas = ref<HTMLCanvasElement | null>(null);
+let ctx: CanvasRenderingContext2D | null = null;
+
+// Draw function: throttle via requestAnimationFrame
+let drawPending = false;
+const draw = () => {
+  if (!ctx) return;
+  const c = ctx;
+  const w = canvas.value!.width;
+  const h = canvas.value!.height;
+  c.clearRect(0, 0, w, h);
+  // draw border
+  c.strokeStyle = '#ddd'; c.lineWidth = 2;
+  c.strokeRect(5, 5, w-10, h-10);
+  // middle lines
+  c.beginPath(); c.moveTo(w/2,5); c.lineTo(w/2,h-5);
+  c.moveTo(5,h/2); c.lineTo(w-5,h/2); c.stroke();
+  // circle
+  c.beginPath(); c.arc(w/2,h/2,(w-10)/2,0,2*Math.PI); c.stroke();
+  // history
+  if (props.showHistory && props.historyPoints && props.historyPoints.length) {
+    const pts = props.historyPoints;
+    const len = pts.length;
+    c.lineWidth = 1.5;
+    // path
+    c.beginPath();
+    pts.forEach((p,i)=>{
+      const x = w/2 + p.x*((w-10)/2);
+      const y = h/2 - p.y*((h-10)/2);
+      if (i===0) c.moveTo(x,y); else c.lineTo(x,y);
+    });
+    c.strokeStyle = '#ff6b6b'; c.globalAlpha = 0.3;
+    c.stroke(); c.globalAlpha = 1;
+    // points with fading
+    pts.forEach((p,i)=>{
+      const x = w/2 + p.x*((w-10)/2);
+      const y = h/2 - p.y*((h-10)/2);
+      const alpha = (i+1)/len;
+      c.fillStyle = `rgba(255,71,87,${alpha})`;
+      c.beginPath(); c.arc(x,y,2,0,2*Math.PI); c.fill();
+    });
+  }
+  // current axis line
+  const cx = w/2 + props.axisX*((w-10)/2);
+  const cy = h/2 - props.axisY*((h-10)/2);
+  c.beginPath(); c.moveTo(w/2,h/2); c.lineTo(cx,cy);
+  c.strokeStyle = 'gray'; c.lineWidth = 1; c.stroke();
+  // current point
+  c.beginPath(); c.arc(cx,cy,5,0,2*Math.PI);
+  c.fillStyle = 'gray'; c.fill();
+};
+
+// Watch props for redraw
+watch([() => props.axisX, () => props.axisY, () => props.historyPoints],()=>{
+  if (!drawPending) {
+    drawPending = true;
+    requestAnimationFrame(()=>{ draw(); drawPending=false; });
+  }
+}, { deep:true });
+
+onMounted(()=>{
+  if (canvas.value) ctx = canvas.value.getContext('2d');
+  draw();
+});
+
 const yAxisStyle = computed(() => ({
   width: `${Math.abs(props.axisY) * 50}%`,
   left: props.axisY > 0 ? '50%' : `${50 - Math.abs(props.axisY) * 50}%`,
@@ -99,31 +113,6 @@ const xAxisStyle = computed(() => ({
   left: props.axisX > 0 ? '50%' : `${50 - Math.abs(props.axisX) * 50}%`,
   backgroundColor: '#42b983',
 }));
-
-// 修改为仅连接历史点
-const historyPathData = computed(() => {
-  if (!props.historyPoints || props.historyPoints.length < 2) return null;
-  
-  return props.historyPoints.reduce((path, point, index) => {
-    const x = 90 + point.x * 85;
-    const y = 90 - point.y * 85;
-    
-    return index === 0 ? `M ${x} ${y}` : `${path} L ${x} ${y}`;
-  }, '');
-});
-
-const getPointColor = (index: number) => {
-  const historyLength = props.historyPoints?.length || 1;
-  if (index === historyLength - 1) {
-    return '#ff4757';
-  }
-  return '#ff6b6b';
-};
-
-const getPointOpacity = (index: number) => {
-  const historyLength = props.historyPoints?.length || 1;
-  return 0.2 + (index / historyLength) * 0.8;
-};
 
 const formatAxisValue = (value: number) => value.toFixed(6);
 </script>
@@ -192,20 +181,16 @@ const formatAxisValue = (value: number) => value.toFixed(6);
   white-space: nowrap;
 }
 
-.joystick-area {
-  display: flex;
-  justify-content: center;
-  align-items: center;
+.joystick-canvas {
+  border-radius: 4px;
+  background-color: #fff;
+  box-shadow: 0 0 5px rgba(0,0,0,0.1);
 }
 
 /* Adjust layout */
 .joystick-container {
   flex-direction: column; /* Change to column to stack elements vertically */
   align-items: center;
-}
-
-.joystick-area {
-  order: 2;
 }
 
 .y-axis-bar {

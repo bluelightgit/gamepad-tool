@@ -250,6 +250,7 @@ interface OutputLog {
 }
 
 const selectedGamepad = ref<GamepadInfo>(createDefaultGamepad());
+const latestGamepadSnapshot = ref<GamepadInfo | null>(null);
 const selectedGamepadId = ref(0);
 const pollingRateData = ref<Record<string, PollingRateResult | null>>({
   '0': createDefaultPollingRateResult()
@@ -330,6 +331,9 @@ onMounted(async () => {
       fetchJoystickLevels()
     ]);
     
+    // 启动渲染循环，仅在动画帧更新UI
+    startGamepadRenderLoop();
+
     // 然后更新手柄ID
     console.log("Updating gamepad IDs...");
     await updateGamepadIds();
@@ -419,9 +423,9 @@ async function get_gamepad_ids() {
 
 async function updateGamepadIds() {
   try {
-    console.log("Fetching gamepad IDs...");
+
     const ids = await get_gamepad_ids();
-    console.log("Received gamepad IDs:", ids);
+    // if (ids != gamepadIds.value) {console.log("Received gamepad IDs:", ids);}
     gamepadIds.value = ids;
     
     // 如果没有找到任何手柄ID，添加默认ID 0
@@ -449,15 +453,9 @@ async function fetchGamepads() {
   try {
     console.log("Setting up gamepads_info event listener");
     listen("gamepads_info", (event) => {
-      console.log("Received gamepads_info event:", event.payload);
+      // 缓存最新数据，不直接更新 selectedGamepad
       if (event.payload) {
-        selectedGamepad.value = event.payload as GamepadInfo;
-      } else {
-        console.warn("Received empty gamepads_info event payload");
-        // 如果接收到空数据，使用默认手柄数据
-        if (!selectedGamepad.value || selectedGamepad.value.name === "加载中...") {
-          selectedGamepad.value = createDefaultGamepad(selectedGamepadId.value);
-        }
+        latestGamepadSnapshot.value = event.payload as GamepadInfo;
       }
     });
   } catch (error) {
@@ -469,7 +467,6 @@ async function fetchPollingRate() {
   try {
     console.log("Setting up polling_rate_result event listener");
     listen("polling_rate_result", (event) => {
-      console.log("Received polling_rate_result:", event.payload);
       const result = event.payload as PollingRateResult;
       const userId = selectedGamepadId.value.toString();
       pollingRateData.value = { 
@@ -481,11 +478,11 @@ async function fetchPollingRate() {
   }
 }
 
-async function set_log_size(log_size: number) {
+async function set_log_size(logSize: number) {
   try {
-    console.log(`Setting log size to ${log_size}...`);
-    await invoke<void>("set_log_size", { log_size });
-    console.log(`Log size set to ${log_size}`);
+    console.log(`Setting log size to ${logSize}...`);
+    await invoke<void>("set_log_size", { logSize });
+    console.log(`Log size set to ${logSize}`);
   } catch (error) {
     console.error("Error in set_log_size:", error);
   }
@@ -666,6 +663,9 @@ const retryInitialization = async () => {
       fetchJoystickLevels()
     ]);
     
+    // 启动渲染循环，仅在动画帧更新UI
+    startGamepadRenderLoop();
+
     // 然后更新手柄ID
     await updateGamepadIds();
     
@@ -684,6 +684,17 @@ const retryInitialization = async () => {
     isInitializing.value = false;
   }
 };
+
+// 添加渲染循环函数
+function startGamepadRenderLoop() {
+  function frame() {
+    if (latestGamepadSnapshot.value) {
+      selectedGamepad.value = latestGamepadSnapshot.value;
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
 </script>
 
 <style scoped>

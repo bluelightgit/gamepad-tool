@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use libm::atan2;
 use crate::util::math_util::MathUtil;
@@ -21,6 +22,7 @@ pub struct Memo {
     pub direction_bins: (HashMap<Direction, u32>, HashMap<Direction, u32>),
     pub math_utils: MathUtil,
     pub log_size: usize,
+    pub instant: Instant,
 }
 
 impl Memo {
@@ -31,6 +33,7 @@ impl Memo {
             direction_bins: (HashMap::new(), HashMap::new()),
             math_utils: MathUtil::new(),
             log_size: MAX_LOG_SIZE,
+            instant: Instant::now(),
         }
     }
 }
@@ -135,10 +138,14 @@ impl GamepadState {
         self.xinput_state.update(user_index);
         let xyxy = self.xinput_state.get_axis_val().unwrap();
         let log = PollingRateLog {
-            timestamp: chrono::Utc::now().timestamp_micros() as u64,
+            timestamp: memo.instant.elapsed().as_micros() as u64,
             xyxy,
         };
 
+        #[cfg(debug_assertions)]
+        {
+            println!("PollingRateLog: {:?}", log);
+        }
         if is_filter_duplicate && logs.len() > 0 && logs.last().unwrap().xyxy == log.xyxy {
             return log;
         } else {
@@ -223,6 +230,16 @@ pub struct GamepadInfo {
 pub struct PollingRateLog {
     pub timestamp: u64,
     pub xyxy: (i16, i16, i16, i16),
+}
+
+impl PollingRateLog {
+    pub fn new() -> Self {
+        PollingRateLog {
+            timestamp: 0,
+            xyxy: (0, 0, 0, 0),
+        }
+    }
+    
 }
 
 #[derive(Serialize, Debug, Deserialize, Clone)]

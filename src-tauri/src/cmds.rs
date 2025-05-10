@@ -1,7 +1,7 @@
-use std::{sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, time::Duration};
+use std::{sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, time::{Duration, Instant}};
 use tauri::{AppHandle, Emitter};
 
-use crate::{util::gamepad_util::{self, polling_rate_log_to_output_log}, GamepadState};
+use crate::{util::gamepad_util::{self, polling_rate_log_to_output_log, Memo, PollingRateLog, PollingRateResult}, GamepadState};
 
 const DEFAULT_SLEEP_TIME: u64 = 1;
 const STANDBY_SLEEP_TIME: u64 = 10000;
@@ -22,39 +22,43 @@ impl Default for GlobalGamepadState {
 }
 
 #[tauri::command]
-pub fn start_update(app_handle: AppHandle, state: tauri::State<'_, GlobalGamepadState>, user_id: u32, frame_rate: i64) {
+pub fn start_update(app_handle: AppHandle, state: tauri::State<'_, GlobalGamepadState>, user_id: u32, frame_rate: u64) {
     // 如果已经在更新则不重复启动
     if state.update_running.swap(true, Ordering::SeqCst) {
         return;
     }
     let cancel_flag = state.update_running.clone();
     let mutex_state = Arc::clone(&state.mutex_state);
-    let mut last_emit_time = chrono::Utc::now().timestamp_micros();
-    let frame_interval = 1_000_000 / frame_rate;
     tauri::async_runtime::spawn(async move {
-        while cancel_flag.load(Ordering::SeqCst) {
-            let mut gamepad_state = mutex_state.lock().unwrap();
-            let gamepad = gamepad_state.get_xinput_gamepad(user_id);
-            gamepad_state.record(user_id, true);
-            let memo = gamepad_state.memo.get(&user_id).unwrap();
-            
-            if chrono::Utc::now().timestamp_micros() - last_emit_time >= frame_interval {
-                app_handle
-                    .emit("gamepads_info", gamepad.clone()).ok()
-                    .expect("failed to emit gamepads_info");
-                app_handle
-                    .emit("polling_rate_log", polling_rate_log_to_output_log(&memo.polling_rate_log)).ok()
-                    .expect("failed to emit polling_rate_log");
-                app_handle
-                    .emit("polling_rate_result", memo.polling_rate_result.clone()).ok()
-                    .expect("failed to emit polling_rate_result");
-                last_emit_time = chrono::Utc::now().timestamp_micros();
+        // use intervals to schedule polling/emission and standby periods
+        let mut emit_interval = tokio::time::interval(Duration::from_micros(1_000_000 / frame_rate));
+        let mut standby_interval = tokio::time::interval(Duration::from_micros(STANDBY_SLEEP_TIME));
+        loop {
+            if !cancel_flag.load(Ordering::SeqCst) {
+                break;
             }
-            // println!("{:?}, FPS: {:?}", gamepad_state.get_record_log(user_id).last().unwrap(), frame_rate);
-            if gamepad_state.cur_gamepads.len() == 0 {
-                std::thread::sleep(Duration::from_micros(STANDBY_SLEEP_TIME));
+            let (gamepad, polling_rate_log, polling_rate_result, cur_gamepads_len) = {
+                let mut gamepad_state = mutex_state.lock().unwrap();
+                let gamepad = gamepad_state.get_xinput_gamepad(user_id);
+                gamepad_state.record(user_id, true);
+                let memo = gamepad_state.memo.get(&user_id);
+                
+                let (polling_rate_log, 
+                    polling_rate_result) = if let Some(memo) = memo {
+                    (memo.polling_rate_log.clone(), memo.polling_rate_result.clone())
+                } else {
+                    (vec![PollingRateLog::new()], PollingRateResult::new())
+                };
+                (gamepad, polling_rate_log, polling_rate_result, gamepad_state.cur_gamepads.len())
+            };
+            if cur_gamepads_len == 0 {
+                standby_interval.tick().await;
+                continue;
             }
-            std::thread::sleep(Duration::from_micros(DEFAULT_SLEEP_TIME));
+            emit_interval.tick().await;
+            app_handle.emit("gamepads_info", gamepad.clone()).expect("failed to emit gamepads_info");
+            app_handle.emit("polling_rate_log", polling_rate_log_to_output_log(&polling_rate_log)).expect("failed to emit polling_rate_log");
+            app_handle.emit("polling_rate_result", polling_rate_result).expect("failed to emit polling_rate_result");
         }
     });
 }
