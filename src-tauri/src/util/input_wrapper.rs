@@ -163,11 +163,6 @@ impl RawInput<(XINPUT_STATE, XINPUT_BATTERY_INFORMATION)> for XInput {
 
     fn all_device_id(&self) -> Vec<u32> {
         let mut device_ids = Vec::new();
-        #[cfg(debug_assertions)]
-        {
-            device_ids.push(0);
-            return device_ids;
-        }
         for i in 0..XUSER_MAX_COUNT {
             let mut state = self.state.0;
             let result = unsafe { XInputGetState(i, &mut state) };
@@ -175,14 +170,30 @@ impl RawInput<(XINPUT_STATE, XINPUT_BATTERY_INFORMATION)> for XInput {
                 device_ids.push(i);
             }
         }
+        #[cfg(debug_assertions)]
+        if device_ids.is_empty() {
+            device_ids.push(0);
+        }
         device_ids
     }
 
     fn get_controller(&self, id: u32) -> Option<Gamepad> {
         // If no real state stored (update cleared), produce virtual gamepad in debug
         let (ref xi_state, ref batt) = self.state;
+        // real device mapping
+        let battery_state = batt;
+        let mut gamepad = Gamepad { id, name: "XInput Controller".to_string(), vendor_id: None, product_id: None, guid: String::new(), power_info: String::new(), axes: HashMap::new(), buttons: HashMap::new() };
+        gamepad.power_info = match battery_state.BatteryLevel { BATTERY_LEVEL_EMPTY => "Empty".to_string(), BATTERY_LEVEL_LOW => "Low".to_string(), BATTERY_LEVEL_MEDIUM => "Medium".to_string(), BATTERY_LEVEL_FULL => "Full".to_string(), _ => "Unknown".to_string() };
+        gamepad.axes.insert(Axes::LeftThumbX, Axis { axis: Axes::LeftThumbX, value: xi_state.Gamepad.sThumbLX });
+        gamepad.axes.insert(Axes::LeftThumbY, Axis { axis: Axes::LeftThumbY, value: xi_state.Gamepad.sThumbLY });
+        gamepad.axes.insert(Axes::RightThumbX, Axis { axis: Axes::RightThumbX, value: xi_state.Gamepad.sThumbRX });
+        gamepad.axes.insert(Axes::RightThumbY, Axis { axis: Axes::RightThumbY, value: xi_state.Gamepad.sThumbRY });
+        BUTTONS_MAP.iter().for_each(|(btn, flag)| { let pressed = xi_state.Gamepad.wButtons.contains(*flag); let val = if pressed {255} else {0}; gamepad.buttons.insert(btn.clone(), Button { button: btn.clone(), is_pressed: pressed, value: val }); });
+        gamepad.buttons.insert(Buttons::LeftTrigger, Button { button: Buttons::LeftTrigger, is_pressed: xi_state.Gamepad.bLeftTrigger>0, value: xi_state.Gamepad.bLeftTrigger });
+        gamepad.buttons.insert(Buttons::RightTrigger, Button { button: Buttons::RightTrigger, is_pressed: xi_state.Gamepad.bRightTrigger>0, value: xi_state.Gamepad.bRightTrigger });
+        
         #[cfg(debug_assertions)]
-        {
+        if gamepad.axes.is_empty() && gamepad.buttons.is_empty() {
             // debug virtual
             use std::time::{SystemTime, UNIX_EPOCH}; use std::f64::consts::PI;
             let t = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs_f64();
@@ -207,24 +218,13 @@ impl RawInput<(XINPUT_STATE, XINPUT_BATTERY_INFORMATION)> for XInput {
             gamepad.buttons.insert(Buttons::RightTrigger, Button { button: Buttons::RightTrigger, is_pressed: trig>0, value: trig });
             return Some(gamepad);
         }
-        // real device mapping
-        let battery_state = batt;
-        let mut gamepad = Gamepad { id, name: "XInput Controller".to_string(), vendor_id: None, product_id: None, guid: String::new(), power_info: String::new(), axes: HashMap::new(), buttons: HashMap::new() };
-        gamepad.power_info = match battery_state.BatteryLevel { BATTERY_LEVEL_EMPTY => "Empty".to_string(), BATTERY_LEVEL_LOW => "Low".to_string(), BATTERY_LEVEL_MEDIUM => "Medium".to_string(), BATTERY_LEVEL_FULL => "Full".to_string(), _ => "Unknown".to_string() };
-        gamepad.axes.insert(Axes::LeftThumbX, Axis { axis: Axes::LeftThumbX, value: xi_state.Gamepad.sThumbLX });
-        gamepad.axes.insert(Axes::LeftThumbY, Axis { axis: Axes::LeftThumbY, value: xi_state.Gamepad.sThumbLY });
-        gamepad.axes.insert(Axes::RightThumbX, Axis { axis: Axes::RightThumbX, value: xi_state.Gamepad.sThumbRX });
-        gamepad.axes.insert(Axes::RightThumbY, Axis { axis: Axes::RightThumbY, value: xi_state.Gamepad.sThumbRY });
-        BUTTONS_MAP.iter().for_each(|(btn, flag)| { let pressed = xi_state.Gamepad.wButtons.contains(*flag); let val = if pressed {255} else {0}; gamepad.buttons.insert(btn.clone(), Button { button: btn.clone(), is_pressed: pressed, value: val }); });
-        gamepad.buttons.insert(Buttons::LeftTrigger, Button { button: Buttons::LeftTrigger, is_pressed: xi_state.Gamepad.bLeftTrigger>0, value: xi_state.Gamepad.bLeftTrigger });
-        gamepad.buttons.insert(Buttons::RightTrigger, Button { button: Buttons::RightTrigger, is_pressed: xi_state.Gamepad.bRightTrigger>0, value: xi_state.Gamepad.bRightTrigger });
         Some(gamepad)
     }
 
     fn get_axis_val(&self) -> Option<(i16, i16, i16, i16)> {
         let state = self.state.0;
         #[cfg(debug_assertions)]
-        {
+        if state.Gamepad.sThumbLX == 0 && state.Gamepad.sThumbLY == 0 && state.Gamepad.sThumbRX == 0 && state.Gamepad.sThumbRY == 0 {
             use std::time::{SystemTime, UNIX_EPOCH}; use std::f64::consts::PI;
             let t = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs_f64();
             let f = t * 2.0 * PI / 5.0;

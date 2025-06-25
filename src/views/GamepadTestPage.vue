@@ -87,6 +87,14 @@
         <p>Initialization error: {{ initErrorMsg }}</p>
         <button @click="retryInitialization" class="retry-button">Retry</button>
       </div>
+      
+      <!-- WebSocket状态显示 -->
+      <div class="websocket-status" :class="wsStatus">
+        <p>WebSocket: {{ wsStatus }}</p>
+        <button class="toggle-button" @click="toggleWebSocketConnection">
+          {{ useWebSocket ? '禁用 WebSocket' : '启用 WebSocket' }}
+        </button>
+      </div>
 
       <div class="selector">
 
@@ -199,6 +207,9 @@ import { ref, onMounted, computed, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import JoystickVisualization from "../components/JoystickVisualization.vue";
 import { invoke } from "@tauri-apps/api/core";
+import { useWebSocketData, initWebSocket, closeWebSocket } from "../utils/websocket";
+// Make sure to use the type definitions from dataSync.d.ts
+import { createDataSynchronizer } from "../utils/dataSync";
 
 interface AxisData {
   axis: string;
@@ -258,7 +269,7 @@ const pollingRateData = ref<Record<string, PollingRateResult | null>>({
 const joystickLevelsData = ref<Record<string, JoystickLevelsData | null>>({});
 const isSettingsMenuOpen = ref(false);
 const activeSubMenu = ref<'logSize' | 'frameRate' | null>(null);
-const selectedFrameRate = ref(60);
+const selectedFrameRate = ref(120);
 const selectedLogSize = ref(2000);
 const showHistoryPoints = ref(false);
 const leftJoystickHistory = ref<HistoryPoint[]>([]);
@@ -303,6 +314,15 @@ const isGamepadAvailable = (id: number): boolean => {
   return gamepadIds.value.includes(id);
 };
 
+// 添加数据同步器 - 用于协调多数据源更新
+const dataSynchronizer = createDataSynchronizer({
+  debugMode: false,
+  sources: {
+    'websocket': { priority: 75, throttle: 8 },  // WebSocket优先级高，更新频率更高
+    'events': { priority: 50, throttle: 16 }     // 事件更新优先级中等
+  }
+});
+
 // 添加选择手柄的函数
 const selectGamepad = (id: number) => {
   if (selectedGamepadId.value !== id) {
@@ -314,6 +334,170 @@ const isInitializing = ref(true);
 const hasInitError = ref(false);
 const initErrorMsg = ref("");
 
+// 添加WebSocket状态显示
+const { wsStatus, gamepadData, pollingRateLogData, pollingRateResultData } = useWebSocketData();
+
+// 添加WebSocket连接控制
+const useWebSocket = ref(true); // 默认启用WebSocket
+
+// 切换WebSocket连接
+const toggleWebSocketConnection = () => {
+  useWebSocket.value = !useWebSocket.value;
+  if (useWebSocket.value) {
+    initWebSocket();
+  } else {
+    closeWebSocket();
+  }
+};
+
+// 在渲染循环中结合WebSocket和事件数据
+function updateFromLatestData() {
+  // 只有在有快照数据且ID匹配时才更新UI
+  if (latestGamepadSnapshot.value && 
+      selectedGamepadId.value === latestGamepadSnapshot.value.id && 
+      latestGamepadSnapshot.value.buttons && 
+      latestGamepadSnapshot.value.axes) {
+    
+    try {
+      // 深拷贝避免引用问题
+      selectedGamepad.value = JSON.parse(JSON.stringify(latestGamepadSnapshot.value));
+      
+      // 更新摇杆历史数据（如果开启了历史轨迹显示）
+      if (showHistoryPoints.value) {
+        const now = performance.now();
+        if (now - lastHistoryUpdateTime > THROTTLE_INTERVAL) {
+          lastHistoryUpdateTime = now;
+          
+          // 添加新的坐标点
+          const leftX = getAxisValue('LeftThumbX');
+          const leftY = getAxisValue('LeftThumbY');
+          const rightX = getAxisValue('RightThumbX');
+          const rightY = getAxisValue('RightThumbY');
+          
+          // 验证坐标数据有效性
+          if (isValidCoordinate(leftX) && isValidCoordinate(leftY) &&
+              isValidCoordinate(rightX) && isValidCoordinate(rightY)) {
+            
+            const newLeftPoint = { x: leftX, y: leftY };
+            const newRightPoint = { x: rightX, y: rightY };
+            
+            leftJoystickHistory.value.push(newLeftPoint);
+            rightJoystickHistory.value.push(newRightPoint);
+            
+            // 限制历史点数
+            if (leftJoystickHistory.value.length > maxHistoryPoints) {
+              leftJoystickHistory.value.shift();
+            }
+            
+            if (rightJoystickHistory.value.length > maxHistoryPoints) {
+              rightJoystickHistory.value.shift();
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error updating UI from latest data:", error);
+    }
+  }
+}
+
+// 检查坐标值是否有效
+function isValidCoordinate(value: number): boolean {
+  return !isNaN(value) && value >= -1 && value <= 1;
+}
+
+// We're already using the data synchronizer defined above
+
+// 使用WebSocket数据更新UI，结合现有的tauri event方式
+watch(gamepadData, (newData) => {
+  if (!useWebSocket.value) return; // 如果WebSocket被禁用，不处理WebSocket数据
+  
+  if (newData && newData.id === selectedGamepadId.value) {
+    // 使用数据同步器确保更新不会产生冲突
+    if (dataSynchronizer.canUpdateFrom('websocket', 1)) {
+      console.log(`WebSocket gamepad data for ID ${newData.id} received`);
+      // 使用深拷贝避免引用问题
+      latestGamepadSnapshot.value = JSON.parse(JSON.stringify(newData));
+      dataSynchronizer.recordUpdate('websocket');
+    }
+  }
+}, { deep: true });
+
+watch(pollingRateResultData, (newData) => {
+  if (!useWebSocket.value) return; // 如果WebSocket被禁用，不处理WebSocket数据
+  
+  if (newData) {
+    const userId = selectedGamepadId.value.toString();
+    console.log(`WebSocket polling rate data received for user ${userId}`);
+    
+    // 确保newData包含所有必要的字段
+    if (newData.polling_rate_avg !== undefined && 
+        newData.polling_rate_min !== undefined && 
+        newData.polling_rate_max !== undefined &&
+        newData.avg_interval !== undefined &&
+        newData.avg_error_l !== undefined &&
+        newData.avg_error_r !== undefined) {
+      
+      // 添加缺失的drop_rate字段（如果缺少）
+      const completeData = {
+        ...newData,
+        drop_rate: newData.drop_rate !== undefined ? newData.drop_rate : 0
+      };
+      
+      // 使用不可变更新方式
+      pollingRateData.value = { 
+        ...pollingRateData.value,
+        [userId]: completeData
+      };
+    }
+  }
+}, { deep: true });
+
+watch(pollingRateLogData, (newData) => {
+  if (!useWebSocket.value) return; // 如果WebSocket被禁用，不处理WebSocket数据
+  
+  if (newData && newData.length > 0 && showHistoryPoints.value) {
+    const now = performance.now();
+    if (now - lastHistoryUpdateTime > THROTTLE_INTERVAL) {
+      lastHistoryUpdateTime = now;
+      const maxProcessLogs = 10;
+      // 仅处理最新的日志数据
+      const recentLogs = newData.slice(-maxProcessLogs);
+      
+      for (const log of recentLogs) {
+        try {
+          // 添加新的坐标点
+          if (log.xyxy) {
+            const newLeftPoint = {
+              x: log.xyxy[0],
+              y: log.xyxy[1]
+            };
+            
+            const newRightPoint = {
+              x: log.xyxy[2],
+              y: log.xyxy[3]
+            };
+            
+            leftJoystickHistory.value.push(newLeftPoint);
+            rightJoystickHistory.value.push(newRightPoint);
+            
+            // 限制历史点数
+            if (leftJoystickHistory.value.length > maxHistoryPoints) {
+              leftJoystickHistory.value.shift();
+            }
+            
+            if (rightJoystickHistory.value.length > maxHistoryPoints) {
+              rightJoystickHistory.value.shift();
+            }
+          }
+        } catch (error) {
+          console.error("Error processing polling rate log:", error);
+        }
+      }
+    }
+  }
+}, { deep: true });
+
 onMounted(async () => {
   try {
     isInitializing.value = true;
@@ -321,6 +505,10 @@ onMounted(async () => {
     initErrorMsg.value = "";
     
     console.log("Component mounted, initializing...");
+    
+    // 清除历史记录，避免旧数据干扰
+    leftJoystickHistory.value = [];
+    rightJoystickHistory.value = [];
     
     // 首先设置事件监听器
     console.log("Setting up event listeners...");
@@ -688,9 +876,8 @@ const retryInitialization = async () => {
 // 添加渲染循环函数
 function startGamepadRenderLoop() {
   function frame() {
-    if (latestGamepadSnapshot.value) {
-      selectedGamepad.value = latestGamepadSnapshot.value;
-    }
+    // 使用最新的数据来源更新UI
+    updateFromLatestData();
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

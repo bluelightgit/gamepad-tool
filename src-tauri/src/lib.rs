@@ -8,6 +8,8 @@ mod util {
     pub mod input_wrapper;
 }
 mod cmds;
+mod websocket;
+mod models;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -21,7 +23,16 @@ pub fn run() {
             cmds::stop_update,
             cmds::get_gamepad_ids,
             cmds::set_log_size,
-        ])
+            websocket::get_websocket_port,
+            websocket::start_websocket_server_command,
+        ])        .setup(|app| {
+            let app_handle = app.handle().clone();
+            // 在应用启动时启动WebSocket服务器
+            tauri::async_runtime::spawn(async move {
+                websocket::start_websocket_server_command(app_handle);
+            });
+            Ok(())
+        })
         .build(tauri::generate_context!())
         .expect("error while running tauri application");
     app.run(move |app_handle, event| {

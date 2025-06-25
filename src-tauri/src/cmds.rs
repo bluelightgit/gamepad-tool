@@ -1,7 +1,9 @@
 use std::{sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, time::{Duration, Instant}};
 use tauri::{AppHandle, Emitter};
+use serde::Serialize;
 
-use crate::{util::gamepad_util::{self, polling_rate_log_to_output_log, Memo, PollingRateLog, PollingRateResult}, GamepadState};
+use crate::{util::gamepad_util::{self, polling_rate_log_to_output_log, Memo, PollingRateLog, PollingRateResult, GamepadInfo, OutputLog}, GamepadState};
+use tokio::sync::mpsc::UnboundedSender;
 
 const DEFAULT_SLEEP_TIME: u64 = 1;
 const STANDBY_SLEEP_TIME: u64 = 10000;
@@ -10,6 +12,8 @@ pub struct GlobalGamepadState {
     pub mutex_state: Arc<Mutex<GamepadState>>,
     /// 当值为 true 时，表示更新任务正在运行
     pub update_running: Arc<AtomicBool>,
+    /// WebSocket客户端列表，用于发送数据流
+    pub clients: Arc<Mutex<Vec<UnboundedSender<String>>>>,
 }
 
 impl Default for GlobalGamepadState {
@@ -17,9 +21,12 @@ impl Default for GlobalGamepadState {
         Self {
             mutex_state: Arc::new(Mutex::new(GamepadState::new())),
             update_running: Arc::new(AtomicBool::new(false)),
+            clients: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
+
+use crate::models::StreamData;
 
 #[tauri::command]
 pub fn start_update(app_handle: AppHandle, state: tauri::State<'_, GlobalGamepadState>, user_id: u32, frame_rate: u64) {
@@ -29,6 +36,8 @@ pub fn start_update(app_handle: AppHandle, state: tauri::State<'_, GlobalGamepad
     }
     let cancel_flag = state.update_running.clone();
     let mutex_state = Arc::clone(&state.mutex_state);
+    let clients = state.clients.clone();
+    
     tauri::async_runtime::spawn(async move {
         // use intervals to schedule polling/emission and standby periods
         let mut emit_interval = tokio::time::interval(Duration::from_micros(1_000_000 / frame_rate));
@@ -55,10 +64,43 @@ pub fn start_update(app_handle: AppHandle, state: tauri::State<'_, GlobalGamepad
                 standby_interval.tick().await;
                 continue;
             }
+            
             emit_interval.tick().await;
-            app_handle.emit("gamepads_info", gamepad.clone()).expect("failed to emit gamepads_info");
-            app_handle.emit("polling_rate_log", polling_rate_log_to_output_log(&polling_rate_log)).expect("failed to emit polling_rate_log");
-            app_handle.emit("polling_rate_result", polling_rate_result).expect("failed to emit polling_rate_result");
+              // 构造WebSocket数据包
+            let output_logs = polling_rate_log_to_output_log(&polling_rate_log);
+            
+            // 确保数据中包含当前选择的gamepad ID
+            if gamepad.id == user_id {
+                let stream_data = StreamData {
+                    gamepad: gamepad.clone(),
+                    polling_rate_log: output_logs.clone(),
+                    polling_rate_result: polling_rate_result.clone(),
+                };
+                
+                // 发送数据到WebSocket客户端
+                if let Ok(json_data) = serde_json::to_string(&stream_data) {
+                    // 使用作用域锁减少锁持有时间
+                    let client_count = {
+                        let mut clients_guard = clients.lock().unwrap();
+                        // 保留有效的客户端连接
+                        clients_guard.retain(|tx| tx.send(json_data.clone()).is_ok());
+                        clients_guard.len()
+                    };
+                    
+                    // 记录客户端数量
+                    if client_count > 0 {
+                        println!("Sent gamepad data to {} WebSocket clients", client_count);
+                    }
+                }
+            }
+            
+                        // 发送数据前确保这些是当前选中的gamepad的数据
+            if gamepad.id == user_id {
+                // 保留原有的emit方式作为备用
+                app_handle.emit("gamepads_info", gamepad).expect("failed to emit gamepads_info");
+                app_handle.emit("polling_rate_log", output_logs).expect("failed to emit polling_rate_log");
+                app_handle.emit("polling_rate_result", polling_rate_result).expect("failed to emit polling_rate_result");
+            }
         }
     });
 }
