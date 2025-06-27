@@ -11,6 +11,8 @@ node_modules
 dist
 dist-ssr
 *.local
+bump-version.ps1
+update-version.ps1
 
 # Editor directories and files
 .vscode/*
