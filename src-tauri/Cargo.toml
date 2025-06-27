@@ -1,6 +1,6 @@
 [package]
 name = "gamepad-tool"
-version = "0.3.0"
+version = "0.4.0"
 description = "A Tauri App for detecting gamepad status."
 authors = ["bluelight"]
 edition = "2021"
@@ -15,20 +15,20 @@ name = "gamepad_tool_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2.3.0", features = [] }
 
 [dependencies]
 # WebSocket dependencies
-tokio-tungstenite = "0.17"
-futures = "0.3"
-tauri = { version = "2", features = [] }
-tauri-plugin-opener = "2"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+tokio-tungstenite = "0.27.0"
+futures = "0.3.31"
+tauri = { version = "2.6.1", features = [] }
+tauri-plugin-opener = "2.4.0"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
 log = "0.4.22"
-windows = { version = "0.59.0", features = ["Win32_UI_Input_XboxController", "Gaming_Input_Custom", 
+windows = { version = "0.61.3", features = ["Win32_UI_Input_XboxController", "Gaming_Input_Custom", 
             "Gaming_Input_Preview"] }
-libm = "0.2.11"
-rand = "0.8"
-tokio = { version = "1.45.0", features = ["macros", "rt-multi-thread"] }
+libm = "0.2.15"
+rand = "0.9.1"
+tokio = { version = "1.45.1", features = ["macros", "rt-multi-thread", "time"] }
 
