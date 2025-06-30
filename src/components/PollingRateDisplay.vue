@@ -1,6 +1,5 @@
 <template>
   <div class="polling-rate-display">
-    <h3>Performance Stats</h3>
     <div v-if="pollingRateData" class="stats-grid">
       <div class="stat-item primary">
         <span class="stat-label">Avg Rate</span>

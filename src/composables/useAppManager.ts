@@ -82,6 +82,17 @@ export function useAppManager() {
         console.error("Error getting gamepad IDs:", error)
         return [0]
       }
+    },
+    
+    async cleanLog(): Promise<void> {
+      try {
+        console.log("Cleaning log data...")
+        await invoke<void>("clean_log")
+        console.log("Log data cleaned successfully")
+      } catch (error) {
+        console.error("Error cleaning log:", error)
+        throw error
+      }
     }
   }
   

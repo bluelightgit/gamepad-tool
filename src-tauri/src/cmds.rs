@@ -32,8 +32,6 @@ impl Default for GlobalGamepadState {
     }
 }
 
-use crate::models::StreamData;
-
 #[tauri::command]
 pub fn start_update(
     app_handle: AppHandle,
@@ -47,7 +45,6 @@ pub fn start_update(
     }
     let cancel_flag = state.update_running.clone();
     let mutex_state = Arc::clone(&state.mutex_state);
-    let clients = state.clients.clone();
 
     // 创建专用的高频轮询任务 - 独立运行，不受UI影响
     let polling_cancel_flag = cancel_flag.clone();
@@ -56,7 +53,7 @@ pub fn start_update(
         let mut polling_interval = time::interval(Duration::from_micros(POLLING_RATE_MICROSECONDS));
         // 设置为Burst模式以提高精度
         polling_interval.set_missed_tick_behavior(time::MissedTickBehavior::Burst);
-        
+
         let mut standby_interval = time::interval(Duration::from_micros(STANDBY_SLEEP_TIME));
 
         loop {
@@ -94,7 +91,7 @@ pub fn start_update(
     // 创建独立的数据发送任务 - 低频率，避免影响轮询
     tauri::async_runtime::spawn(async move {
         let mut emit_interval = time::interval(Duration::from_micros(1_000_000 / frame_rate));
-        
+
         loop {
             if !cancel_flag.load(Ordering::SeqCst) {
                 break;
@@ -125,24 +122,6 @@ pub fn start_update(
                 // 确保数据中包含当前选择的gamepad ID
                 if gamepad.id == user_id {
                     let output_logs = polling_rate_log_to_output_log(&polling_rate_log);
-                    
-                    // 发送到WebSocket客户端（高优先级，非阻塞）
-                    // let stream_data = StreamData {
-                    //     gamepad: gamepad.clone(),
-                    //     polling_rate_log: output_logs.clone(),
-                    //     polling_rate_result: polling_rate_result.clone(),
-                    // };
-
-                    // if let Ok(json_data) = serde_json::to_string(&stream_data) {
-                    //     // 异步发送WebSocket数据，不阻塞
-                    //     let clients_clone = clients.clone();
-                    //     let json_data_clone = json_data.clone();
-                    //     tokio::spawn(async move {
-                    //         if let Ok(mut clients_guard) = clients_clone.try_lock() {
-                    //             clients_guard.retain(|tx| tx.send(json_data_clone.clone()).is_ok());
-                    //         }
-                    //     });
-                    // }
 
                     // 异步发送Tauri事件，避免阻塞
                     let app_clone = app_handle.clone();
@@ -182,4 +161,10 @@ pub fn get_gamepad_ids(state: tauri::State<'_, GlobalGamepadState>) -> Vec<u32> 
 pub fn set_log_size(state: tauri::State<'_, GlobalGamepadState>, log_size: usize) {
     let mut gamepad_state = state.mutex_state.lock().unwrap();
     gamepad_state.set_log_size(log_size);
+}
+
+#[tauri::command]
+pub fn clean_log(state: tauri::State<'_, GlobalGamepadState>) {
+    let mut gamepad_state = state.mutex_state.lock().unwrap();
+    gamepad_state.reset();
 }

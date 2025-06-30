@@ -89,7 +89,20 @@
 
           <!-- 性能数据显示区域 -->
           <div class="grid-item performance-area">
-            <PollingRateDisplay :polling-rate-data="selectedPollingRateData" />
+            <div class="performance-header">
+              <h3>Performance Stats</h3>
+              <div class="performance-controls">
+                <button
+                  class="clear-button"
+                  @click="handleCleanLog"
+                >
+                  Clean Log
+                </button>
+              </div>
+            </div>
+            <div class="performance-content">
+              <PollingRateDisplay :polling-rate-data="selectedPollingRateData" />
+            </div>
           </div>
         </div>
       </div>
@@ -123,7 +136,8 @@ const {
   updateFrameRate,
   updateLogSize,
   updateSelectedGamepadId,
-  cleanup: cleanupAppManager
+  cleanup: cleanupAppManager,
+  tauriCommands
 } = useAppManager()
 
 // 2. 初始化手柄状态管理器
@@ -173,6 +187,14 @@ const handleLogSizeUpdate = (size: number) => {
 
 const handleClearHistory = () => {
   clearAllHistory()
+}
+
+const handleCleanLog = async () => {
+  try {
+    await tauriCommands.cleanLog()
+  } catch (error) {
+    console.error("Failed to clean log:", error)
+  }
 }
 
 const handleInnerDeadzoneUpdate = (value: number) => {
@@ -456,6 +478,33 @@ onBeforeUnmount(() => {
 
 .clear-button:hover {
   background: #ff3742;
+}
+
+.performance-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  flex-wrap: nowrap;
+  gap: 8px;
+  flex-shrink: 0;
+  min-height: 24px;
+}
+
+.performance-header h3 {
+  margin: 0;
+}
+
+.performance-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.performance-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 /* 宽屏和超宽屏：三栏布局，Performance Stats较窄 (1000px+) */

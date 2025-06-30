@@ -1,36 +1,28 @@
-use std::sync::atomic::Ordering;
 use cmds::GlobalGamepadState;
+use std::sync::atomic::Ordering;
 use tauri::Manager;
 use util::gamepad_util::GamepadState;
 mod util {
     pub mod gamepad_util;
-    pub mod math_util;
     pub mod input_wrapper;
+    pub mod math_util;
 }
 mod cmds;
-mod websocket;
-mod models;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(
-            GlobalGamepadState::default()
-        )
+        .manage(GlobalGamepadState::default())
         .invoke_handler(tauri::generate_handler![
             cmds::start_update,
             cmds::stop_update,
             cmds::get_gamepad_ids,
             cmds::set_log_size,
-            websocket::get_websocket_port,
-            websocket::start_websocket_server_command,
-        ])        .setup(|app| {
-            let app_handle = app.handle().clone();
-            // 在应用启动时启动WebSocket服务器
-            tauri::async_runtime::spawn(async move {
-                websocket::start_websocket_server_command(app_handle);
-            });
+            cmds::clean_log,
+        ])
+        .setup(|app| {
+            let _ = app.handle().clone();
             Ok(())
         })
         .build(tauri::generate_context!())

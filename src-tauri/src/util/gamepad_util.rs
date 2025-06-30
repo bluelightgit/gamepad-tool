@@ -1,9 +1,9 @@
+use crate::util::input_wrapper::{RawInput, XInput};
+use crate::util::math_util::MathUtil;
+use libm::atan2;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
-use serde::{Deserialize, Serialize};
-use libm::atan2;
-use crate::util::math_util::MathUtil;
-use crate::util::input_wrapper::{RawInput, XInput};
 
 const MAX_LOG_SIZE: usize = 1000;
 const CALCULATE_INTERVAL: usize = 100; // caluculate onece per 100 logs
@@ -48,37 +48,42 @@ impl GamepadState {
     }
 
     /// 从 XInput 控制器状态构造 GamepadInfo
-    pub fn get_xinput_gamepad(
-        &mut self,
-        user_index: u32,   
-    ) -> GamepadInfo {
+    pub fn get_xinput_gamepad(&mut self, user_index: u32) -> GamepadInfo {
         self.xinput_state.update(user_index);
         let gamepad = self.xinput_state.get_controller(user_index).unwrap();
         // 映射按钮
-        let buttons = gamepad.buttons.iter().map(|(k, v)| {
-            (
-                k.to_string(),
-                ButtonData {
-                    button: k.to_string(),
-                    is_pressed: v.is_pressed,
-                    value: v.value as f64 / 255.0f64,
-                },
-            )
-        }).collect::<HashMap<String, ButtonData>>();
+        let buttons = gamepad
+            .buttons
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.to_string(),
+                    ButtonData {
+                        button: k.to_string(),
+                        is_pressed: v.is_pressed,
+                        value: v.value as f64 / 255.0f64,
+                    },
+                )
+            })
+            .collect::<HashMap<String, ButtonData>>();
         // 映射轴
-        let axes = gamepad.axes.iter().map(|(k, v)| {
-            (
-                k.to_string(),
-                AxisData {
-                    axis: k.to_string(),
-                    value: v.value as f64 / 32767.0f64,
-                },
-            )
-        }).collect::<HashMap<String, AxisData>>();
+        let axes = gamepad
+            .axes
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.to_string(),
+                    AxisData {
+                        axis: k.to_string(),
+                        value: v.value as f64 / 32767.0f64,
+                    },
+                )
+            })
+            .collect::<HashMap<String, AxisData>>();
         let vendor_id = 0;
         let product_id = 0;
         let name = format!("Xinput Controller {}", user_index);
-        
+
         // 构造 GamepadInfo
         GamepadInfo {
             id: user_index,
@@ -118,7 +123,13 @@ impl GamepadState {
         let memo = self.memo.entry(user_index).or_insert(Memo::new());
         let logs = &memo.polling_rate_log;
         let math_util = &mut memo.math_utils;
-        let result = math_util.calc_frequency(logs.iter().map(|log| (log.timestamp as i64, log.xyxy.clone())).collect()).unwrap();
+        let result = math_util
+            .calc_frequency(
+                logs.iter()
+                    .map(|log| (log.timestamp as i64, log.xyxy.clone()))
+                    .collect(),
+            )
+            .unwrap();
         let polling_rate_result = PollingRateResult {
             polling_rate_avg: result.0,
             polling_rate_min: result.1,
@@ -177,6 +188,11 @@ impl GamepadState {
             memo.log_size = log_size;
         });
     }
+
+    pub fn reset(&mut self) {
+        self.cur_gamepads.clear();
+        self.memo.clear();
+    }
 }
 
 fn calc_avg_error<T>(dir_bin: HashMap<T, u32>) -> f64 {
@@ -187,18 +203,20 @@ fn calc_avg_error<T>(dir_bin: HashMap<T, u32>) -> f64 {
 }
 
 pub fn polling_rate_log_to_output_log(logs: &Vec<PollingRateLog>) -> Vec<OutputLog> {
-    logs.iter().map(|log| {
-        let xyxy = log.xyxy;
-        OutputLog {
-            timestamp: log.timestamp,
-            xyxy: (
-                xyxy.0 as f64 / MAX_R,
-                xyxy.1 as f64 / MAX_R,
-                xyxy.2 as f64 / MAX_R,
-                xyxy.3 as f64 / MAX_R,
-            ),
-        }
-    }).collect()
+    logs.iter()
+        .map(|log| {
+            let xyxy = log.xyxy;
+            OutputLog {
+                timestamp: log.timestamp,
+                xyxy: (
+                    xyxy.0 as f64 / MAX_R,
+                    xyxy.1 as f64 / MAX_R,
+                    xyxy.2 as f64 / MAX_R,
+                    xyxy.3 as f64 / MAX_R,
+                ),
+            }
+        })
+        .collect()
 }
 
 #[derive(Serialize, Debug, Deserialize, Clone)]
@@ -239,7 +257,6 @@ impl PollingRateLog {
             xyxy: (0, 0, 0, 0),
         }
     }
-    
 }
 
 #[derive(Serialize, Debug, Deserialize, Clone)]
@@ -293,4 +310,3 @@ impl Direction {
         }
     }
 }
-

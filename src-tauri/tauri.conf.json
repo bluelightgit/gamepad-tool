@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "gamepad-tool",
-        "width": 1200,
-        "height": 650,
+        "width": 600,
+        "height": 750,
         "minWidth": 480,
         "minHeight": 600,
         "resizable": true
