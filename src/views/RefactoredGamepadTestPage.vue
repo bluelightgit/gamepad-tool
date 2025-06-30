@@ -197,7 +197,7 @@ onMounted(async () => {
     onBeforeUnmount(() => clearInterval(gamepadUpdateInterval))
     
     // 注册一个渲染回调来更新UI（如果需要的话）
-    // 示例：registerRenderCallback(() => { /* a high-frequency update */ })
+    // Example: registerRenderCallback(() => { /* high-frequency update */ })
     
   } catch (error) {
     console.error("Failed to mount GamepadTestPage:", error)
@@ -217,9 +217,9 @@ onBeforeUnmount(() => {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 8px; /* 进一步减少间距 */
-  padding: 4px 8px; /* 减少水平和垂直padding */
-  padding-top: 32px; /* 进一步减少顶部空间 */
+  gap: 8px;
+  padding: 4px 8px;
+  padding-top: 32px;
   max-height: 1000px;
   overflow-y: auto;
   background-color: var(--container-bg-color);
@@ -232,8 +232,8 @@ onBeforeUnmount(() => {
   justify-content: center;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px; /* 减少间距 */
-  margin-bottom: 4px; /* 减少底部间距 */
+  gap: 8px;
+  margin-bottom: 4px;
 }
 
 .status-message {
@@ -273,30 +273,30 @@ onBeforeUnmount(() => {
 .main-layout {
   display: flex;
   flex-direction: column;
-  gap: 8px; /* 进一步减少间距 */
+  gap: 8px;
   flex: 1;
   min-height: 0;
 }
 
 .gamepad-info-card {
-  padding: 6px 10px; /* 进一步减少内边距 */
+  padding: 6px 10px;
   background: #f8f9fa;
-  border-radius: 4px; /* 减小圆角 */
+  border-radius: 4px;
   text-align: center;
   border: 1px solid var(--border-color);
   flex-shrink: 0;
 }
 
 .gamepad-info-card h2 {
-  margin: 0 0 2px 0; /* 进一步减少间距 */
+  margin: 0 0 2px 0;
   color: var(--primary-color);
-  font-size: 1.0em; /* 进一步减小字体 */
+  font-size: 1.0em;
 }
 
 .gamepad-info-card p {
   margin: 0;
   color: #666;
-  font-size: 0.85em; /* 进一步减小字体 */
+  font-size: 0.85em;
 }
 
 .layout-grid {

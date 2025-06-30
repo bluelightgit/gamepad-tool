@@ -229,7 +229,7 @@ body {
 .main-content {
   flex: 1;
   padding: 24px;
-  min-width: 0; /* 防止内容溢出 */
+  min-width: 0;
   box-sizing: border-box;
 }
 

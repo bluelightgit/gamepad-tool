@@ -101,19 +101,19 @@ const handleTabClick = (id: number) => {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 4px; /* 进一步减少间距 */
-  padding: 6px 10px; /* 进一步减少padding */
+  gap: 4px;
+  padding: 6px 10px;
   background: #e9e9e9;
   border: none;
-  border-radius: 3px; /* 进一步减小圆角 */
+  border-radius: 3px;
   font-weight: 600;
   color: #666;
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;
-  min-width: 90px; /* 进一步减少最小宽度 */
+  min-width: 90px;
   justify-content: center;
-  font-size: 12px; /* 进一步减小字体 */
+  font-size: 12px;
 }
 
 .gamepad-tab:hover:not(.disabled) {
@@ -145,7 +145,7 @@ const handleTabClick = (id: number) => {
 }
 
 .tab-icon {
-  font-size: 12px; /* 进一步减小字体 */
+  font-size: 12px;
   opacity: 0.8;
 }
 
@@ -154,7 +154,7 @@ const handleTabClick = (id: number) => {
 }
 
 .tab-text {
-  font-size: 11px; /* 进一步减小字体 */
+  font-size: 11px;
 }
 
 .active-indicator {

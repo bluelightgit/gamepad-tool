@@ -135,16 +135,16 @@ onBeforeUnmount(() => {
 <style scoped>
 .gamepad-buttons {
   width: 100%;
-  min-width: 200px; /* 减小基础最小宽度 */
+  min-width: 200px;
   height: 100%;
   display: flex;
   flex-direction: column;
 }
 
 .gamepad-buttons h3 {
-  margin: 0 0 12px 0; /* 减少底部间距 */
+  margin: 0 0 12px 0;
   color: #333;
-  font-size: 1em; /* 减小基础字体大小 */
+  font-size: 1em;
   font-weight: 600;
   flex-shrink: 0;
 }
@@ -154,8 +154,8 @@ onBeforeUnmount(() => {
   grid-template-columns: repeat(4, 1fr);
   gap: 8px;
   width: 100%;
-  min-width: 0; /* 防止网格溢出 */
-  flex: 1; /* 占用剩余空间 */
+  min-width: 0;
+  flex: 1;
   align-content: start;
 }
 
@@ -168,7 +168,7 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   transition: all 0.1s ease;
   position: relative;
-  min-width: 0; /* 防止内容溢出 */
+  min-width: 0;
   box-sizing: border-box;
 }
 
@@ -224,7 +224,7 @@ onBeforeUnmount(() => {
   font-family: 'Courier New', monospace;
 }
 
-/* 响应式设计 - 与主布局断点一致 */
+/* 响应式设计 */
 
 /* 宽屏及以上 (1000px+) */
 @media (min-width: 1000px) {
