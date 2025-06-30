@@ -1,4 +1,4 @@
-use std::sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex};
+use std::sync::atomic::Ordering;
 use cmds::GlobalGamepadState;
 use tauri::Manager;
 use util::gamepad_util::GamepadState;

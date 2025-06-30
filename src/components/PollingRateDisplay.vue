@@ -56,14 +56,18 @@ const formatNumber = (value: number): string => {
 <style scoped>
 .polling-rate-display {
   width: 100%;
-  min-width: 280px;
+  min-width: 200px; /* 减小基础最小宽度 */
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .polling-rate-display h3 {
-  margin: 0 0 16px 0;
+  margin: 0 0 12px 0; /* 减少底部间距 */
   color: #333;
-  font-size: 1.2em;
+  font-size: 1em; /* 减小基础字体 */
   font-weight: 600;
+  flex-shrink: 0;
 }
 
 .stats-grid {
@@ -71,6 +75,8 @@ const formatNumber = (value: number): string => {
   grid-template-columns: repeat(2, 1fr);
   gap: 12px;
   width: 100%;
+  flex: 1; /* 占用剩余空间 */
+  align-content: start;
 }
 
 .stat-item {
@@ -137,56 +143,83 @@ const formatNumber = (value: number): string => {
   font-style: italic;
 }
 
-/* 响应式设计 */
-@media (max-width: 768px) {
+/* 响应式设计 - 与主布局断点一致 */
+
+/* 宽屏及以上 (1000px+) */
+@media (min-width: 1000px) {
+  .polling-rate-display {
+    min-width: 100px; /* 由于performance列更窄，减小最小宽度 */
+  }
+  
+  .polling-rate-display h3 {
+    font-size: 1.1em;
+    margin: 0 0 14px 0;
+  }
+  
   .stats-grid {
     grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
+    gap: 12px;
   }
   
   .stat-item {
-    padding: 10px;
+    padding: 12px;
   }
   
   .stat-label {
-    font-size: 0.8em;
+    font-size: 0.85em;
   }
   
   .stat-value {
-    font-size: 1em;
-  }
-  
-  .stat-item.primary .stat-value {
     font-size: 1.1em;
   }
+  
+  .stat-item.primary .stat-value {
+    font-size: 1.2em;
+  }
 }
 
-@media (max-width: 600px) {
+/* 中屏：紧凑3列布局 (768-999px) */
+@media (min-width: 768px) and (max-width: 999px) {
+  .polling-rate-display {
+    min-width: 200px;
+  }
+  
+  .polling-rate-display h3 {
+    font-size: 0.95em;
+    margin: 0 0 10px 0;
+  }
+  
   .stats-grid {
     grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    gap: 12px;
   }
   
   .stat-item {
-    padding: 8px;
+    padding: 12px;
   }
   
   .stat-label {
-    font-size: 0.75em;
+    font-size: 0.85em;
   }
   
   .stat-value {
-    font-size: 0.9em;
+    font-size: 1.1em;
   }
   
   .stat-item.primary .stat-value {
-    font-size: 1em;
+    font-size: 1.2em;
   }
 }
 
-@media (max-width: 480px) {
+/* 小屏：2列布局 (480-767px) */
+@media (min-width: 480px) and (max-width: 767px) {
   .polling-rate-display {
-    min-width: 240px;
+    min-width: 180px;
+  }
+  
+  .polling-rate-display h3 {
+    font-size: 0.9em;
+    margin: 0 0 8px 0;
   }
   
   .stats-grid {
@@ -203,11 +236,11 @@ const formatNumber = (value: number): string => {
   
   .stat-label {
     margin-bottom: 0;
-    font-size: 0.7em;
+    font-size: 0.75em;
   }
   
   .stat-value {
-    font-size: 0.8em;
+    font-size: 0.85em;
   }
   
   .stat-item.primary .stat-value {
@@ -215,44 +248,4 @@ const formatNumber = (value: number): string => {
   }
 }
 
-@media (max-width: 360px) {
-  .polling-rate-display {
-    min-width: 200px;
-  }
-  
-  .stats-grid {
-    grid-template-columns: 1fr;
-    gap: 4px;
-  }
-  
-  .stat-item {
-    padding: 8px;
-  }
-  
-  .stat-label {
-    font-size: 0.75em;
-  }
-  
-  .stat-value {
-    font-size: 0.85em;
-  }
-}
-
-@media (max-width: 320px) {
-  .polling-rate-display {
-    min-width: 180px;
-  }
-  
-  .stat-item {
-    padding: 6px;
-  }
-  
-  .stat-label {
-    font-size: 0.7em;
-  }
-  
-  .stat-value {
-    font-size: 0.8em;
-  }
-}
 </style>

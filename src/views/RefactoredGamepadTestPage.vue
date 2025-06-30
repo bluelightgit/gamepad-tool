@@ -1,28 +1,22 @@
 <template>
   <div class="gamepad-test-page">
-    <!-- 设置面板 - 固定在左上角 -->
-    <div class="settings-container">
-      <SettingsPanel
+    <!-- 页面头部：包含标签页和设置面板 -->
+    <header class="page-header">
+      <GamepadTabs
+        :selected-id="selectedGamepadId"
+        :available-ids="gamepadIds"
+        :is-gamepad-available="isGamepadAvailable"
         :current-frame-rate="appSettings.frameRate"
         :current-log-size="appSettings.logSize"
         :inner-deadzone="settings.innerDeadzone"
         :outer-deadzone="settings.outerDeadzone"
         :frame-rate-options="frameRateOptions"
         :log-size-options="logSizeOptions"
+        @select="handleGamepadSelect"
         @update:frame-rate="handleFrameRateUpdate"
         @update:log-size="handleLogSizeUpdate"
         @update:inner-deadzone="handleInnerDeadzoneUpdate"
         @update:outer-deadzone="handleOuterDeadzoneUpdate"
-      />
-    </div>
-
-    <!-- 页面头部：包含标签页 -->
-    <header class="page-header">
-      <GamepadTabs
-        :selected-id="selectedGamepadId"
-        :available-ids="gamepadIds"
-        :is-gamepad-available="isGamepadAvailable"
-        @select="handleGamepadSelect"
       />
     </header>
 
@@ -114,7 +108,6 @@ import { useRenderManager } from '../composables/useRenderManager'
 
 // 引入重构后的组件
 import GamepadTabs from '../components/GamepadTabs.vue'
-import SettingsPanel from '../components/SettingsPanel.vue'
 import GamepadButtons from '../components/GamepadButtons.vue'
 import OptimizedJoystick from '../components/OptimizedJoystick.vue'
 import PollingRateDisplay from '../components/PollingRateDisplay.vue'
@@ -224,19 +217,14 @@ onBeforeUnmount(() => {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  padding: 16px;
-  padding-top: 60px; /* 为固定设置按钮留出空间 */
+  gap: 8px; /* 进一步减少间距 */
+  padding: 4px 8px; /* 减少水平和垂直padding */
+  padding-top: 32px; /* 进一步减少顶部空间 */
+  max-height: 1000px;
+  overflow-y: auto;
   background-color: var(--container-bg-color);
-  border-radius: 12px;
-  box-shadow: 0 4px 20px var(--shadow-color);
-}
-
-.settings-container {
-  position: fixed;
-  top: 16px;
-  left: 16px;
-  z-index: 1000;
+  border-radius: 6px;
+  box-shadow: 0 1px 8px var(--shadow-color);
 }
 
 .page-header {
@@ -244,7 +232,8 @@ onBeforeUnmount(() => {
   justify-content: center;
   align-items: center;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 8px; /* 减少间距 */
+  margin-bottom: 4px; /* 减少底部间距 */
 }
 
 .status-message {
@@ -284,54 +273,98 @@ onBeforeUnmount(() => {
 .main-layout {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 8px; /* 进一步减少间距 */
+  flex: 1;
+  min-height: 0;
 }
 
 .gamepad-info-card {
-  padding: 16px;
+  padding: 6px 10px; /* 进一步减少内边距 */
   background: #f8f9fa;
-  border-radius: 8px;
+  border-radius: 4px; /* 减小圆角 */
   text-align: center;
   border: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 
 .gamepad-info-card h2 {
-  margin: 0 0 8px 0;
+  margin: 0 0 2px 0; /* 进一步减少间距 */
   color: var(--primary-color);
+  font-size: 1.0em; /* 进一步减小字体 */
 }
 
 .gamepad-info-card p {
   margin: 0;
   color: #666;
+  font-size: 0.85em; /* 进一步减小字体 */
 }
 
 .layout-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
-  align-items: start;
+  gap: 12px;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+  /* 默认移动端布局：单列 */
+  grid-template-columns: 1fr;
+  grid-template-rows: auto auto auto;
 }
 
 .controls-container {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
 }
 
 .grid-item {
-  padding: 16px;
+  padding: 12px;
   background: #f8f9fa;
-  border-radius: 8px;
+  border-radius: 6px;
   border: 1px solid var(--border-color);
   min-width: 0;
   overflow: hidden;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* 基础joystick区域设置 */
+.joysticks-area {
+  min-height: 260px;
+  max-height: 380px;
+  overflow: visible;
+}
+
+.joystick-group {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
+  flex: 1;
+  align-content: flex-start;
+  padding-top: 8px;
+}
+
+/* 基础buttons和performance区域设置 */
+.buttons-area,
+.performance-area {
+  min-height: 200px;
+  max-height: 350px;
+  overflow-y: auto;
+  flex: 1;
+  min-width: 0; /* 允许收缩 */
+  max-width: 100%; /* 限制最大宽度 */
+  overflow: hidden; /* 防止内容溢出 */
 }
 
 .joysticks-area h3 {
-  margin: 0 0 16px 0;
+  margin: 0 0 6px 0; /* 进一步减少间距 */
   color: #333;
-  font-size: 1.2em;
+  font-size: 1.0em; /* 进一步减小字体 */
   font-weight: 600;
 }
 
@@ -339,30 +372,65 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
-  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: nowrap; /* 防止换行 */
+  gap: 8px; /* 适当增加间距 */
+  flex-shrink: 0;
+  min-height: 24px; /* 固定最小高度确保一致性 */
 }
 
 .joysticks-header h3 {
   margin: 0;
 }
 
+.joysticks-area {
+  min-height: 280px; /* 增加基础高度 */
+  max-height: 400px; /* 增加最大高度 */
+  overflow: visible; /* 确保内容不被隐藏 */
+}
+
+.joystick-group {
+  display: flex;
+  justify-content: space-around;
+  align-items: flex-start; /* 改为顶部对齐 */
+  flex-wrap: wrap;
+  gap: 12px;
+  flex: 1;
+  align-content: flex-start; /* 内容顶部对齐 */
+  padding-top: 4px; /* 少量顶部内边距 */
+}
+
+.buttons-section,
+.performance-section {
+  flex: 1; /* 平分控制容器高度 */
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* 允许收缩 */
+}
+
+/* 确保buttons和performance区域内容能够填充空间 */
+.buttons-section > *,
+.performance-section > * {
+  flex: 1;
+}
+
 .joystick-controls {
   display: flex;
-  gap: 8px;
+  gap: 4px; /* 减少间距以适应紧凑布局 */
   align-items: center;
+  flex-shrink: 0; /* 防止按钮被压缩 */
 }
 
 .toggle-button {
-  padding: 6px 12px;
+  padding: 3px 6px; /* 更紧凑的按钮 */
   background: #42b983;
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 3px;
   cursor: pointer;
-  font-size: 0.85em;
+  font-size: 0.75em; /* 减小字体以适应紧凑布局 */
   transition: all 0.2s ease;
+  white-space: nowrap; /* 防止文字换行 */
 }
 
 .toggle-button:hover {
@@ -371,267 +439,151 @@ onBeforeUnmount(() => {
 
 .toggle-button.active {
   background: #369870;
-  box-shadow: 0 2px 4px rgba(66, 185, 131, 0.3);
+  box-shadow: 0 1px 2px rgba(66, 185, 131, 0.3);
 }
 
 .clear-button {
-  padding: 6px 10px;
+  padding: 3px 5px; /* 更紧凑的按钮 */
   background: #ff4757;
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 3px;
   cursor: pointer;
-  font-size: 0.8em;
+  font-size: 0.7em; /* 减小字体 */
   transition: all 0.2s ease;
+  white-space: nowrap; /* 防止文字换行 */
 }
 
 .clear-button:hover {
   background: #ff3742;
 }
 
-/* 大屏幕：三列显示 */
-@media (min-width: 1200px) {
+/* 宽屏和超宽屏：三栏布局，Performance Stats较窄 (1000px+) */
+@media (min-width: 1000px) {
   .layout-grid {
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 24px;
+    grid-template-columns: 1.4fr 1fr 0.6fr; /* performance更窄，joystick更宽 */
+    gap: 20px;
   }
   
   .controls-container {
-    display: contents; /* 让子元素直接参与网格布局 */
+    display: contents;
+  }
+  
+  .joysticks-area {
+    min-height: 320px;
+    max-height: 400px;
+  }
+  
+  .joystick-group {
+    flex-direction: row; /* 横向排列joystick */
+    justify-content: space-evenly;
+    gap: 24px;
+    flex-wrap: nowrap;
+  }
+  
+  .buttons-area {
+    min-height: 320px;
+    max-height: 400px;
+  }
+  
+  .performance-area {
+    min-height: 320px;
+    max-height: 400px;
+    /* Performance区域较窄，内容会自动调整 */
   }
 }
 
-/* 中等大屏幕：两列，但性能数据仍在右侧 */
-@media (min-width: 900px) and (max-width: 1199px) {
+/* 中屏：joystick占一行，buttons+performance并排，紧凑显示 (768-999px) */
+@media (min-width: 768px) and (max-width: 999px) {
   .layout-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+    gap: 14px;
+  }
+  
+  .controls-container {
+    display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 20px;
+    gap: 14px;
+  }
+  
+  .joysticks-area {
+    min-height: 240px;
+    max-height: 300px;
+  }
+  
+  .joysticks-area h3 {
+    font-size: 0.9em; /* 缩小标题字体 */
+  }
+  
+  .joystick-group {
+    flex-direction: row;
+    justify-content: space-around;
+    gap: 18px;
+  }
+  
+  .buttons-area,
+  .performance-area {
+    min-height: 220px;
+    max-height: 280px;
+    overflow: visible; /* 防止内容被裁剪 */
+  }
+  
+  /* 缩小区域内的标题字体 */
+  .buttons-area h3,
+  .performance-area h3 {
+    font-size: 0.9em;
+    margin: 0 0 8px 0;
+  }
+}
+
+/* 小屏：全部纵向堆叠，紧凑按钮显示 (480-767px) */
+@media (min-width: 480px) and (max-width: 767px) {
+  .layout-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
   }
   
   .controls-container {
     display: flex;
     flex-direction: column;
-    gap: 16px;
-  }
-}
-
-.joystick-group {
-  display: flex;
-  justify-content: space-around;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 20px;
-}
-
-/* 中等屏幕：摇杆在上方，按键和性能并排在下方 */
-@media (min-width: 769px) and (max-width: 899px) {
-  .layout-grid {
-    grid-template-columns: 1fr;
-    gap: 20px;
-  }
-  
-  .controls-container {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-  }
-}
-
-/* 响应式设计 */
-@media (max-width: 768px) {
-  .gamepad-test-page {
-    padding: 12px;
-    padding-top: 60px;
-    gap: 16px;
-  }
-  
-  .settings-container {
-    top: 12px;
-    left: 12px;
-  }
-  
-  .page-header {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  
-  .layout-grid {
-    grid-template-columns: 1fr;
-    gap: 16px;
-  }
-  
-  .controls-container {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-  }
-  
-  .grid-item {
-    padding: 12px;
-  }
-  
-  .joysticks-header {
-    flex-direction: column;
-    align-items: flex-start;
     gap: 10px;
   }
   
-  .joystick-controls {
-    gap: 6px;
+  .joysticks-area {
+    min-height: 220px;
+    max-height: 260px;
   }
   
-  .toggle-button,
-  .clear-button {
-    font-size: 0.8em;
-    padding: 5px 10px;
+  .joysticks-area h3 {
+    font-size: 0.85em; /* 进一步缩小标题 */
   }
   
   .joystick-group {
-    gap: 16px;
     flex-direction: row;
-    justify-content: space-evenly;
-  }
-}
-
-@media (max-width: 600px) {
-  .gamepad-test-page {
-    padding: 10px;
-    padding-top: 60px;
+    justify-content: space-around;
     gap: 14px;
   }
   
-  .layout-grid {
-    gap: 14px;
+  .buttons-area,
+  .performance-area {
+    min-height: 140px; /* 减小高度避免溢出 */
+    max-height: 170px; /* 减小最大高度 */
+    padding: 6px; /* 减少内边距 */
+    overflow: visible; /* 确保内容不被裁剪 */
   }
   
-  .controls-container {
-    grid-template-columns: 1fr;
-    gap: 10px;
+  /* 缩小所有标题和按钮 */
+  .buttons-area h3,
+  .performance-area h3 {
+    font-size: 0.85em;
+    margin: 0 0 6px 0;
   }
   
-  .grid-item {
-    padding: 10px;
-  }
-  
-  .joysticks-header {
-    gap: 8px;
-  }
-  
-  .toggle-button,
-  .clear-button {
-    font-size: 0.75em;
-    padding: 4px 8px;
-  }
-  
-  .joystick-group {
-    flex-direction: column;
-    gap: 12px;
-    align-items: center;
+  /* 针对按钮区域的特殊优化 */
+  .buttons-area {
+    overflow: visible; /* 确保按钮不被裁剪 */
   }
 }
 
-@media (max-width: 480px) {
-  .gamepad-test-page {
-    padding: 8px;
-    padding-top: 60px;
-    gap: 12px;
-  }
-  
-  .settings-container {
-    top: 8px;
-    left: 8px;
-  }
-  
-  .layout-grid {
-    gap: 12px;
-  }
-  
-  .controls-container {
-    gap: 8px;
-  }
-  
-  .grid-item {
-    padding: 8px;
-  }
-  
-  .toggle-button,
-  .clear-button {
-    font-size: 0.7em;
-    padding: 3px 6px;
-  }
-  
-  .gamepad-info-card {
-    padding: 12px;
-  }
-  
-  .gamepad-info-card h2 {
-    font-size: 1.3em;
-  }
-  
-  .joystick-group {
-    flex-direction: column;
-    gap: 10px;
-  }
-}
-
-@media (max-width: 360px) {
-  .gamepad-test-page {
-    padding: 6px;
-    padding-top: 60px;
-  }
-  
-  .settings-container {
-    top: 6px;
-    left: 6px;
-  }
-  
-  .controls-container {
-    gap: 6px;
-  }
-  
-  .grid-item {
-    padding: 6px;
-  }
-  
-  .toggle-button,
-  .clear-button {
-    font-size: 0.65em;
-    padding: 2px 4px;
-  }
-  
-  .gamepad-info-card {
-    padding: 8px;
-  }
-  
-  .gamepad-info-card h2 {
-    font-size: 1.2em;
-  }
-  
-  .joystick-group {
-    gap: 8px;
-  }
-}
-
-@media (max-width: 320px) {
-  .gamepad-test-page {
-    padding: 4px;
-    padding-top: 60px;
-  }
-  
-  .controls-container {
-    gap: 4px;
-  }
-  
-  .grid-item {
-    padding: 4px;
-  }
-  
-  .gamepad-info-card {
-    padding: 6px;
-  }
-  
-  .gamepad-info-card h2 {
-    font-size: 1.1em;
-  }
-}
 </style>

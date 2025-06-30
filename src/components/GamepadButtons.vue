@@ -59,13 +59,13 @@ const getButtonValueText = (buttonKey: string): string => {
   return getButtonValue(buttonKey).toFixed(2)
 }
 
-// 按钮名称缩写映射（用于小屏幕）
+// 按钮名称缩写映射（全屏幕使用缩写）
 const getButtonDisplayName = (buttonKey: string): string => {
   // 使用响应式的窗口宽度
   const width = windowWidth.value
   
   // 超小屏幕使用极简缩写
-  if (width <= 360) {
+  if (width <= 479) {
     const miniNames: Record<string, string> = {
       "LeftShoulder": "LB",
       "RightShoulder": "RB", 
@@ -83,27 +83,22 @@ const getButtonDisplayName = (buttonKey: string): string => {
     return miniNames[buttonKey] || buttonKey.substring(0, 2)
   }
   
-  // 小屏幕使用标准缩写
-  if (width <= 600) {
-    const shortNames: Record<string, string> = {
-      "LeftShoulder": "LB",
-      "RightShoulder": "RB", 
-      "LeftTrigger": "LT",
-      "RightTrigger": "RT",
-      "LeftThumb": "L3",
-      "RightThumb": "R3",
-      "DPadUp": "D↑",
-      "DPadDown": "D↓", 
-      "DPadLeft": "D←",
-      "DPadRight": "D→",
-      "Back": "Back",
-      "Start": "Start"
-    }
-    return shortNames[buttonKey] || buttonKey
+  // 所有其他屏幕使用标准缩写
+  const shortNames: Record<string, string> = {
+    "LeftShoulder": "LB",
+    "RightShoulder": "RB", 
+    "LeftTrigger": "LT",
+    "RightTrigger": "RT",
+    "LeftThumb": "L3",
+    "RightThumb": "R3",
+    "DPadUp": "D↑",
+    "DPadDown": "D↓", 
+    "DPadLeft": "D←",
+    "DPadRight": "D→",
+    "Back": "Bk",
+    "Start": "St"
   }
-  
-  // 大屏幕使用完整名称
-  return buttonKey
+  return shortNames[buttonKey] || buttonKey
 }
 
 // 使用 CSS 自定义属性来避免频繁的样式计算
@@ -140,14 +135,18 @@ onBeforeUnmount(() => {
 <style scoped>
 .gamepad-buttons {
   width: 100%;
-  min-width: 280px;
+  min-width: 200px; /* 减小基础最小宽度 */
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .gamepad-buttons h3 {
-  margin: 0 0 16px 0;
+  margin: 0 0 12px 0; /* 减少底部间距 */
   color: #333;
-  font-size: 1.2em;
+  font-size: 1em; /* 减小基础字体大小 */
   font-weight: 600;
+  flex-shrink: 0;
 }
 
 .buttons-grid {
@@ -156,6 +155,8 @@ onBeforeUnmount(() => {
   gap: 8px;
   width: 100%;
   min-width: 0; /* 防止网格溢出 */
+  flex: 1; /* 占用剩余空间 */
+  align-content: start;
 }
 
 .button-item {
@@ -223,8 +224,55 @@ onBeforeUnmount(() => {
   font-family: 'Courier New', monospace;
 }
 
-/* 响应式设计 */
-@media (max-width: 768px) {
+/* 响应式设计 - 与主布局断点一致 */
+
+/* 宽屏及以上 (1000px+) */
+@media (min-width: 1000px) {
+  .gamepad-buttons {
+    min-width: 280px;
+  }
+  
+  .gamepad-buttons h3 {
+    font-size: 1.2em;
+    margin: 0 0 16px 0;
+  }
+  
+  .buttons-grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+  
+  .button-item {
+    padding: 8px;
+    font-size: 1em;
+  }
+  
+  .progress-container {
+    height: 40px;
+    width: 8px;
+    margin-right: 8px;
+  }
+  
+  .button-name {
+    font-size: 0.9em;
+  }
+  
+  .button-value {
+    font-size: 0.75em;
+  }
+}
+
+/* 中屏：紧凑4列布局 (768-999px) */
+@media (min-width: 768px) and (max-width: 999px) {
+  .gamepad-buttons {
+    min-width: 240px;
+  }
+  
+  .gamepad-buttons h3 {
+    font-size: 0.95em;
+    margin: 0 0 10px 0;
+  }
+  
   .buttons-grid {
     grid-template-columns: repeat(4, 1fr);
     gap: 6px;
@@ -242,33 +290,43 @@ onBeforeUnmount(() => {
   }
   
   .button-name {
-    font-size: 0.75em;
+    font-size: 0.8em;
   }
   
   .button-value {
-    font-size: 0.65em;
+    font-size: 0.7em;
   }
 }
 
-@media (max-width: 600px) {
+/* 小屏：3列垂直布局 (480-767px) */
+@media (min-width: 480px) and (max-width: 767px) {
+  .gamepad-buttons {
+    min-width: 200px;
+  }
+  
+  .gamepad-buttons h3 {
+    font-size: 0.9em;
+    margin: 0 0 8px 0;
+  }
+  
   .buttons-grid {
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 6px;
   }
   
   .button-item {
-    padding: 8px 6px;
+    padding: 6px 4px;
     flex-direction: column;
     align-items: center;
-    min-height: 65px;
+    min-height: 30px;
     text-align: center;
   }
   
   .progress-container {
     width: 100%;
-    height: 6px;
+    height: 5px;
     margin-right: 0;
-    margin-bottom: 4px;
+    margin-bottom: 3px;
   }
   
   .progress-bar {
@@ -290,94 +348,7 @@ onBeforeUnmount(() => {
   }
   
   .button-value {
-    font-size: 0.7em;
-  }
-}
-
-@media (max-width: 480px) {
-  .gamepad-buttons {
-    min-width: 240px;
-  }
-  
-  .buttons-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 6px;
-  }
-  
-  .button-item {
-    padding: 8px 4px;
-    min-height: 60px;
-  }
-  
-  .button-name {
-    font-size: 0.7em;
-    line-height: 1.2;
-  }
-  
-  .button-value {
     font-size: 0.65em;
-  }
-}
-
-@media (max-width: 360px) {
-  .gamepad-buttons {
-    min-width: 200px;
-  }
-  
-  .buttons-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 4px;
-  }
-  
-  .button-item {
-    padding: 6px 3px;
-    min-height: 55px;
-  }
-  
-  .button-name {
-    font-size: 0.65em;
-    line-height: 1.1;
-    font-weight: 700; /* 增强可读性 */
-  }
-  
-  .button-value {
-    font-size: 0.6em;
-  }
-  
-  .progress-container {
-    height: 5px;
-    margin-bottom: 3px;
-  }
-}
-
-@media (max-width: 320px) {
-  .gamepad-buttons {
-    min-width: 180px;
-  }
-  
-  .buttons-grid {
-    grid-template-columns: 1fr 1fr;
-    gap: 3px;
-  }
-  
-  .button-item {
-    padding: 4px 2px;
-    min-height: 50px;
-  }
-  
-  .button-name {
-    font-size: 0.6em;
-    line-height: 1.0;
-    font-weight: 700;
-  }
-  
-  .button-value {
-    font-size: 0.55em;
-  }
-  
-  .progress-container {
-    height: 4px;
-    margin-bottom: 2px;
   }
 }
 </style>

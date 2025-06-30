@@ -12,7 +12,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::{self, Duration};
 
 const STANDBY_SLEEP_TIME: u64 = 10000;
-const POLLING_RATE_MICROSECONDS: u64 = 250; // 1ms = 1000Hz 轮询率
+const POLLING_RATE_MICROSECONDS: u64 = 250; // 0.25ms = 8000Hz 轮询率
 
 pub struct GlobalGamepadState {
     pub mutex_state: Arc<Mutex<GamepadState>>,
@@ -49,44 +49,61 @@ pub fn start_update(
     let mutex_state = Arc::clone(&state.mutex_state);
     let clients = state.clients.clone();
 
+    // 创建专用的高频轮询任务 - 独立运行，不受UI影响
+    let polling_cancel_flag = cancel_flag.clone();
+    let polling_mutex_state = mutex_state.clone();
     tauri::async_runtime::spawn(async move {
-        // 使用高频轮询间隔用于记录游戏手柄状态（约1000Hz）
         let mut polling_interval = time::interval(Duration::from_micros(POLLING_RATE_MICROSECONDS));
+        // 设置为Burst模式以提高精度
+        polling_interval.set_missed_tick_behavior(time::MissedTickBehavior::Burst);
+        
         let mut standby_interval = time::interval(Duration::from_micros(STANDBY_SLEEP_TIME));
 
-        // 跟踪上次发送数据的时间，用于按帧率发送
-        let mut last_emit_time = std::time::Instant::now();
-        let emit_duration = Duration::from_micros(1_000_000 / frame_rate);
+        loop {
+            if !polling_cancel_flag.load(Ordering::SeqCst) {
+                break;
+            }
 
+            // 快速检查是否有游戏手柄连接
+            let has_gamepads = {
+                // 使用try_lock避免阻塞，如果锁被占用就跳过这次轮询
+                if let Ok(mut gamepad_state) = polling_mutex_state.try_lock() {
+                    !gamepad_state.get_cur_gamepads().is_empty()
+                } else {
+                    // 如果无法获取锁，假设有游戏手柄继续轮询
+                    true
+                }
+            };
+
+            if !has_gamepads {
+                standby_interval.tick().await;
+                continue;
+            }
+
+            // 高频记录游戏手柄状态 - 使用try_lock避免阻塞
+            if let Ok(mut gamepad_state) = polling_mutex_state.try_lock() {
+                gamepad_state.record(user_id, true);
+            }
+            // 如果无法获取锁，跳过这次记录但继续轮询
+
+            // 等待下一次轮询 - 这是关键，确保轮询间隔精确
+            polling_interval.tick().await;
+        }
+    });
+
+    // 创建独立的数据发送任务 - 低频率，避免影响轮询
+    tauri::async_runtime::spawn(async move {
+        let mut emit_interval = time::interval(Duration::from_micros(1_000_000 / frame_rate));
+        
         loop {
             if !cancel_flag.load(Ordering::SeqCst) {
                 break;
             }
 
-            // 检查是否有游戏手柄连接
-            let cur_gamepads_len = {
-                let mut gamepad_state = mutex_state.lock().unwrap();
-                gamepad_state.get_cur_gamepads().len()
-            };
-
-            if cur_gamepads_len == 0 {
-                standby_interval.tick().await;
-                continue;
-            }
-
-            // 高频记录游戏手柄状态 - 不受帧率限制
-            {
-                let mut gamepad_state = mutex_state.lock().unwrap();
-                gamepad_state.record(user_id, true);
-            }
-
-            // 检查是否应该发送数据（按帧率）
-            let should_emit = last_emit_time.elapsed() >= emit_duration;
-
-            // 如果达到发送时间，获取数据并发送
-            if should_emit {
-                let (gamepad, polling_rate_log, polling_rate_result) = {
-                    let mut gamepad_state = mutex_state.lock().unwrap();
+            // 获取数据并发送
+            let data_result = {
+                // 使用try_lock减少阻塞时间
+                if let Ok(mut gamepad_state) = mutex_state.try_lock() {
                     let gamepad = gamepad_state.get_xinput_gamepad(user_id);
                     let memo = gamepad_state.memo.get(&user_id);
 
@@ -98,54 +115,48 @@ pub fn start_update(
                     } else {
                         (vec![PollingRateLog::new()], PollingRateResult::new())
                     };
-                    (gamepad, polling_rate_log, polling_rate_result)
-                };
+                    Some((gamepad, polling_rate_log, polling_rate_result))
+                } else {
+                    None
+                }
+            };
 
-                last_emit_time = std::time::Instant::now();
-
-                // 构造WebSocket数据包
-                let output_logs = polling_rate_log_to_output_log(&polling_rate_log);
-
+            if let Some((gamepad, polling_rate_log, polling_rate_result)) = data_result {
                 // 确保数据中包含当前选择的gamepad ID
                 if gamepad.id == user_id {
-                    let stream_data = StreamData {
-                        gamepad: gamepad.clone(),
-                        polling_rate_log: output_logs.clone(),
-                        polling_rate_result: polling_rate_result.clone(),
-                    };
+                    let output_logs = polling_rate_log_to_output_log(&polling_rate_log);
+                    
+                    // 发送到WebSocket客户端（高优先级，非阻塞）
+                    // let stream_data = StreamData {
+                    //     gamepad: gamepad.clone(),
+                    //     polling_rate_log: output_logs.clone(),
+                    //     polling_rate_result: polling_rate_result.clone(),
+                    // };
 
-                    // 发送数据到WebSocket客户端
-                    if let Ok(json_data) = serde_json::to_string(&stream_data) {
-                        // 使用作用域锁减少锁持有时间
-                        let client_count = {
-                            let mut clients_guard = clients.lock().unwrap();
-                            // 保留有效的客户端连接
-                            clients_guard.retain(|tx| tx.send(json_data.clone()).is_ok());
-                            clients_guard.len()
-                        };
+                    // if let Ok(json_data) = serde_json::to_string(&stream_data) {
+                    //     // 异步发送WebSocket数据，不阻塞
+                    //     let clients_clone = clients.clone();
+                    //     let json_data_clone = json_data.clone();
+                    //     tokio::spawn(async move {
+                    //         if let Ok(mut clients_guard) = clients_clone.try_lock() {
+                    //             clients_guard.retain(|tx| tx.send(json_data_clone.clone()).is_ok());
+                    //         }
+                    //     });
+                    // }
 
-                        // 记录客户端数量
-                        if client_count > 0 {
-                            println!("Sent gamepad data to {} WebSocket clients", client_count);
-                        }
-                    }
-
-                    // 发送数据前确保这些是当前选中的gamepad的数据
-                    // 保留原有的emit方式作为备用
-                    app_handle
-                        .emit("gamepads_info", gamepad)
-                        .expect("failed to emit gamepads_info");
-                    app_handle
-                        .emit("polling_rate_log", output_logs)
-                        .expect("failed to emit polling_rate_log");
-                    app_handle
-                        .emit("polling_rate_result", polling_rate_result)
-                        .expect("failed to emit polling_rate_result");
+                    // 异步发送Tauri事件，避免阻塞
+                    let app_clone = app_handle.clone();
+                    tokio::spawn(async move {
+                        // 使用非阻塞方式发送事件
+                        let _ = app_clone.emit("gamepads_info", gamepad);
+                        let _ = app_clone.emit("polling_rate_log", output_logs);
+                        let _ = app_clone.emit("polling_rate_result", polling_rate_result);
+                    });
                 }
             }
 
-            // 等待下一次轮询
-            polling_interval.tick().await;
+            // 等待下次发送间隔
+            emit_interval.tick().await;
         }
     });
 }

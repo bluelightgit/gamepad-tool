@@ -6,7 +6,7 @@ use windows::Win32::UI::Input::XboxController::{
 
 // rand is only used for debug virtual device
 #[cfg(debug_assertions)]
-use rand::{thread_rng, Rng};
+use rand::Rng;
 
 enum InputType {
     XInput,
@@ -193,9 +193,11 @@ impl RawInput<(XINPUT_STATE, XINPUT_BATTERY_INFORMATION)> for XInput {
         gamepad.buttons.insert(Buttons::RightTrigger, Button { button: Buttons::RightTrigger, is_pressed: xi_state.Gamepad.bRightTrigger>0, value: xi_state.Gamepad.bRightTrigger });
         
         #[cfg(debug_assertions)]
-        if gamepad.axes.is_empty() && gamepad.buttons.is_empty() {
+        if gamepad.axes.values().all(|a| a.value == 0) && gamepad.buttons.values().all(|b| !b.is_pressed) {
             // debug virtual
             use std::time::{SystemTime, UNIX_EPOCH}; use std::f64::consts::PI;
+
+            use rand::rng;
             let t = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs_f64();
             let f = t * 2.0 * PI / 5.0;
             let axis_val = |v: f64| (v * i16::MAX as f64) as i16;
@@ -206,11 +208,11 @@ impl RawInput<(XINPUT_STATE, XINPUT_BATTERY_INFORMATION)> for XInput {
             gamepad.axes.insert(Axes::RightThumbX, Axis { axis: Axes::RightThumbX, value: 0 });
             gamepad.axes.insert(Axes::RightThumbY, Axis { axis: Axes::RightThumbY, value: 0 });
             // buttons random
-            let mut rng = thread_rng();
-            for &(_, flag) in BUTTONS_MAP.iter() {
-                let pressed = rng.gen_bool(0.1);
-                let val = if pressed { 255 } else { 0 };
-                let btn = flag; // reuse enum mapping? use flag to Buttons lookup omitted
+            let mut rng = rng();
+            for (btn, _) in BUTTONS_MAP.iter() {
+                let pressed = rng.random_bool(0.5);
+                let val = if pressed {255} else {0};
+                gamepad.buttons.insert(btn.clone(), Button { button: btn.clone(), is_pressed: pressed, value: val });
             }
             // triggers
             let trig = ((f.sin()*0.5+0.5)*255.0) as u8;
