@@ -93,6 +93,13 @@
               <h3>Performance Stats</h3>
               <div class="performance-controls">
                 <button
+                  class="log-toggle-button"
+                  :class="{ active: appSettings.isRecordLog }"
+                  @click="handleToggleRecordLog"
+                >
+                  {{ appSettings.isRecordLog ? 'Log On' : 'Log Off' }}
+                </button>
+                <button
                   class="clear-button"
                   @click="handleCleanLog"
                 >
@@ -136,6 +143,7 @@ const {
   updateFrameRate,
   updateLogSize,
   updateSelectedGamepadId,
+  updateIsRecordLog,
   cleanup: cleanupAppManager,
   tauriCommands
 } = useAppManager()
@@ -194,6 +202,14 @@ const handleCleanLog = async () => {
     await tauriCommands.cleanLog()
   } catch (error) {
     console.error("Failed to clean log:", error)
+  }
+}
+
+const handleToggleRecordLog = async () => {
+  try {
+    await updateIsRecordLog(!appSettings.isRecordLog)
+  } catch (error) {
+    console.error("Failed to toggle record log:", error)
   }
 }
 
@@ -505,6 +521,32 @@ onBeforeUnmount(() => {
   flex: 1;
   display: flex;
   flex-direction: column;
+}
+
+/* log toggle button styles */
+.log-toggle-button {
+  padding: 3px 6px;
+  background: #ff4757; /* 默认红色（Log Off） */
+  color: white;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.75em;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.log-toggle-button:hover {
+  background: #ff3742; /* 红色悬停 */
+}
+
+.log-toggle-button.active {
+  background: #42b983; /* 绿色（Log On） */
+  box-shadow: 0 1px 2px rgba(66, 185, 131, 0.3);
+}
+
+.log-toggle-button.active:hover {
+  background: #369870; /* 绿色悬停 */
 }
 
 /* 宽屏和超宽屏：三栏布局，Performance Stats较窄 (1000px+) */

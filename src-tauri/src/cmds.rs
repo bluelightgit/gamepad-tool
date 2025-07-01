@@ -8,7 +8,6 @@ use crate::{
     util::gamepad_util::{polling_rate_log_to_output_log, PollingRateLog, PollingRateResult},
     GamepadState,
 };
-use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::{self, Duration};
 
 const STANDBY_SLEEP_TIME: u64 = 10000;
@@ -18,8 +17,6 @@ pub struct GlobalGamepadState {
     pub mutex_state: Arc<Mutex<GamepadState>>,
     /// 当值为 true 时，表示更新任务正在运行
     pub update_running: Arc<AtomicBool>,
-    /// WebSocket客户端列表，用于发送数据流
-    pub clients: Arc<Mutex<Vec<UnboundedSender<String>>>>,
 }
 
 impl Default for GlobalGamepadState {
@@ -27,7 +24,6 @@ impl Default for GlobalGamepadState {
         Self {
             mutex_state: Arc::new(Mutex::new(GamepadState::new())),
             update_running: Arc::new(AtomicBool::new(false)),
-            clients: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -38,55 +34,59 @@ pub fn start_update(
     state: tauri::State<'_, GlobalGamepadState>,
     user_id: u32,
     frame_rate: u64,
+    is_record_log: bool,
 ) {
     // 如果已经在更新则不重复启动
     if state.update_running.swap(true, Ordering::SeqCst) {
         return;
     }
     let cancel_flag = state.update_running.clone();
+    let polling_cancel_flag = cancel_flag.clone();
+
     let mutex_state = Arc::clone(&state.mutex_state);
 
     // 创建专用的高频轮询任务 - 独立运行，不受UI影响
-    let polling_cancel_flag = cancel_flag.clone();
     let polling_mutex_state = mutex_state.clone();
-    tauri::async_runtime::spawn(async move {
-        let mut polling_interval = time::interval(Duration::from_micros(POLLING_RATE_MICROSECONDS));
-        // 设置为Burst模式以提高精度
-        polling_interval.set_missed_tick_behavior(time::MissedTickBehavior::Burst);
+    if is_record_log {
+        tauri::async_runtime::spawn(async move {
+            let mut polling_interval =
+                time::interval(Duration::from_micros(POLLING_RATE_MICROSECONDS));
+            // 设置为Burst模式以提高精度
+            polling_interval.set_missed_tick_behavior(time::MissedTickBehavior::Burst);
 
-        let mut standby_interval = time::interval(Duration::from_micros(STANDBY_SLEEP_TIME));
+            let mut standby_interval = time::interval(Duration::from_micros(STANDBY_SLEEP_TIME));
 
-        loop {
-            if !polling_cancel_flag.load(Ordering::SeqCst) {
-                break;
-            }
-
-            // 快速检查是否有游戏手柄连接
-            let has_gamepads = {
-                // 使用try_lock避免阻塞，如果锁被占用就跳过这次轮询
-                if let Ok(mut gamepad_state) = polling_mutex_state.try_lock() {
-                    !gamepad_state.get_cur_gamepads().is_empty()
-                } else {
-                    // 如果无法获取锁，假设有游戏手柄继续轮询
-                    true
+            loop {
+                if !polling_cancel_flag.load(Ordering::SeqCst) {
+                    break;
                 }
-            };
+                // 快速检查是否有游戏手柄连接
+                let has_gamepads = {
+                    // 使用try_lock避免阻塞，如果锁被占用就跳过这次轮询
+                    if let Ok(mut gamepad_state) = polling_mutex_state.try_lock() {
+                        !gamepad_state.get_cur_gamepads().is_empty()
+                    } else {
+                        // 如果无法获取锁，假设有游戏手柄继续轮询
+                        true
+                    }
+                };
 
-            if !has_gamepads {
-                standby_interval.tick().await;
-                continue;
+                if !has_gamepads {
+                    standby_interval.tick().await;
+                    continue;
+                }
+
+                // 高频记录游戏手柄状态 - 使用try_lock避免阻塞
+                if let Ok(mut gamepad_state) = polling_mutex_state.try_lock() {
+                    gamepad_state.record(user_id, true);
+                }
+                // 如果无法获取锁，跳过这次记录但继续轮询
+
+                // 等待下一次轮询 - 这是关键，确保轮询间隔精确
+                polling_interval.tick().await;
             }
-
-            // 高频记录游戏手柄状态 - 使用try_lock避免阻塞
-            if let Ok(mut gamepad_state) = polling_mutex_state.try_lock() {
-                gamepad_state.record(user_id, true);
-            }
-            // 如果无法获取锁，跳过这次记录但继续轮询
-
-            // 等待下一次轮询 - 这是关键，确保轮询间隔精确
-            polling_interval.tick().await;
-        }
-    });
+        });
+    }
 
     // 创建独立的数据发送任务 - 低频率，避免影响轮询
     tauri::async_runtime::spawn(async move {

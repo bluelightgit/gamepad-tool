@@ -9,6 +9,7 @@ export interface AppSettings {
   frameRate: number
   logSize: number
   selectedGamepadId: number
+  isRecordLog: boolean
 }
 
 export interface AppState {
@@ -34,7 +35,8 @@ export function useAppManager() {
   const appSettings = reactive<AppSettings>({
     frameRate: 120,
     logSize: 2000,
-    selectedGamepadId: 0
+    selectedGamepadId: 0,
+    isRecordLog: true
   })
   
   // 可用的设置选项
@@ -43,10 +45,10 @@ export function useAppManager() {
   
   // Tauri 命令包装器
   const tauriCommands = {
-    async startMainThread(userId: number, frameRate: number): Promise<void> {
+    async startMainThread(userId: number, frameRate: number, isRecordLog: boolean): Promise<void> {
       try {
         console.log(`Starting main thread with userId: ${userId}, frameRate: ${frameRate}`)
-        await invoke<void>("start_update", { userId, frameRate })
+        await invoke<void>("start_update", { userId, frameRate, isRecordLog })
         appState.isMainThreadRunning = true
       } catch (error) {
         console.error("Error starting main thread:", error)
@@ -111,7 +113,8 @@ export function useAppManager() {
       // 2. 启动主线程
       await tauriCommands.startMainThread(
         appSettings.selectedGamepadId, 
-        appSettings.frameRate
+        appSettings.frameRate,
+        appSettings.isRecordLog
       )
       
       console.log("Application initialized successfully")
@@ -136,7 +139,8 @@ export function useAppManager() {
       await tauriCommands.setLogSize(appSettings.logSize)
       await tauriCommands.startMainThread(
         appSettings.selectedGamepadId,
-        appSettings.frameRate
+        appSettings.frameRate,
+        appSettings.isRecordLog
       )
     } catch (error) {
       console.error("Error restarting main thread:", error)
@@ -171,6 +175,14 @@ export function useAppManager() {
   const updateSelectedGamepadId = async (newId: number): Promise<void> => {
     if (newId !== appSettings.selectedGamepadId) {
       appSettings.selectedGamepadId = newId
+      await restartMainThread()
+    }
+  }
+
+  // 是否记录log数据
+  const updateIsRecordLog = async (isRecordLog: boolean): Promise<void> => {
+    if (isRecordLog !== appSettings.isRecordLog) {
+      appSettings.isRecordLog = isRecordLog
       await restartMainThread()
     }
   }
@@ -215,6 +227,7 @@ export function useAppManager() {
     updateFrameRate,
     updateLogSize,
     updateSelectedGamepadId,
+    updateIsRecordLog,
     cleanup,
     
     // Tauri 命令
