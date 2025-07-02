@@ -1,35 +1,47 @@
 <template>
   <div class="polling-rate-display">
     <div v-if="pollingRateData" class="stats-grid">
-      <div class="stat-item primary">
-        <span class="stat-label">Avg Rate</span>
-        <span class="stat-value">{{ formatNumber(pollingRateData.polling_rate_avg) }} Hz</span>
-      </div>
+      <Tooltip :text="t('tooltips.avgRate')" position="top">
+        <div class="stat-item primary">
+          <span class="stat-label">Avg Rate</span>
+          <span class="stat-value">{{ formatNumber(pollingRateData.polling_rate_avg) }} Hz</span>
+        </div>
+      </Tooltip>
       
-      <div class="stat-item">
-        <span class="stat-label">Min Rate</span>
-        <span class="stat-value">{{ formatNumber(pollingRateData.polling_rate_min) }} Hz</span>
-      </div>
+      <Tooltip :text="t('tooltips.minRate')" position="top">
+        <div class="stat-item">
+          <span class="stat-label">Min Rate</span>
+          <span class="stat-value">{{ formatNumber(pollingRateData.polling_rate_min) }} Hz</span>
+        </div>
+      </Tooltip>
       
-      <div class="stat-item">
-        <span class="stat-label">Max Rate</span>
-        <span class="stat-value">{{ formatNumber(pollingRateData.polling_rate_max) }} Hz</span>
-      </div>
+      <Tooltip :text="t('tooltips.maxRate')" position="top">
+        <div class="stat-item">
+          <span class="stat-label">Max Rate</span>
+          <span class="stat-value">{{ formatNumber(pollingRateData.polling_rate_max) }} Hz</span>
+        </div>
+      </Tooltip>
       
-      <div class="stat-item">
-        <span class="stat-label">Avg Interval</span>
-        <span class="stat-value">{{ formatNumber(pollingRateData.avg_interval) }} ms</span>
-      </div>
+      <Tooltip :text="t('tooltips.avgInterval')" position="top">
+        <div class="stat-item">
+          <span class="stat-label">Avg Interval</span>
+          <span class="stat-value">{{ formatNumber(pollingRateData.avg_interval) }} ms</span>
+        </div>
+      </Tooltip>
       
-      <div class="stat-item">
-        <span class="stat-label">Error (L)</span>
-        <span class="stat-value">{{ formatNumber(pollingRateData.avg_error_l) }}%</span>
-      </div>
+      <Tooltip :text="t('tooltips.errorL')" position="top">
+        <div class="stat-item">
+          <span class="stat-label">Error (L)</span>
+          <span class="stat-value">{{ formatNumber(pollingRateData.avg_error_l * 100) }}%</span>
+        </div>
+      </Tooltip>
       
-      <div class="stat-item">
-        <span class="stat-label">Error (R)</span>
-        <span class="stat-value">{{ formatNumber(pollingRateData.avg_error_r) }}%</span>
-      </div>
+      <Tooltip :text="t('tooltips.errorR')" position="top">
+        <div class="stat-item">
+          <span class="stat-label">Error (R)</span>
+          <span class="stat-value">{{ formatNumber(pollingRateData.avg_error_r * 100) }}%</span>
+        </div>
+      </Tooltip>
     </div>
     
     <div v-else class="no-data">
@@ -40,12 +52,16 @@
 
 <script setup lang="ts">
 import type { PollingRateResult } from '../composables/useGamepadState'
+import Tooltip from './Tooltip.vue'
+import { useI18n } from '../i18n'
 
 interface Props {
   pollingRateData: PollingRateResult | null
 }
 
 defineProps<Props>()
+
+const { t } = useI18n()
 
 const formatNumber = (value: number): string => {
   return value.toFixed(2)

@@ -36,7 +36,7 @@ export function useAppManager() {
     frameRate: 120,
     logSize: 2000,
     selectedGamepadId: 0,
-    isRecordLog: true
+    isRecordLog: false
   })
   
   // 可用的设置选项

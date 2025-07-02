@@ -44,20 +44,24 @@
           <div class="joysticks-header">
             <h3>Joysticks</h3>
             <div class="joystick-controls">
-              <button
-                class="toggle-button"
-                :class="{ active: settings.showHistory }"
-                @click="toggleHistoryDisplay"
-              >
-                {{ settings.showHistory ? 'Hide' : 'Show' }} Trail
-              </button>
-              <button
-                v-if="settings.showHistory"
-                class="clear-button"
-                @click="handleClearHistory"
-              >
-                Clear
-              </button>
+              <Tooltip :text="t('tooltips.showTrail')" position="bottom">
+                <button
+                  class="toggle-button"
+                  :class="{ active: settings.showHistory }"
+                  @click="toggleHistoryDisplay"
+                >
+                  {{ settings.showHistory ? t('buttons.hideTrail') : t('buttons.showTrail') }}
+                </button>
+              </Tooltip>
+              <Tooltip :text="t('tooltips.cleanLog')" position="bottom">
+                <button
+                  v-if="settings.showHistory"
+                  class="clear-button"
+                  @click="handleClearHistory"
+                >
+                  {{ t('buttons.clear') }}
+                </button>
+              </Tooltip>
             </div>
           </div>
           <div class="joystick-group">
@@ -92,19 +96,23 @@
             <div class="performance-header">
               <h3>Performance Stats</h3>
               <div class="performance-controls">
-                <button
-                  class="log-toggle-button"
-                  :class="{ active: appSettings.isRecordLog }"
-                  @click="handleToggleRecordLog"
-                >
-                  {{ appSettings.isRecordLog ? 'Log On' : 'Log Off' }}
-                </button>
-                <button
-                  class="clear-button"
-                  @click="handleCleanLog"
-                >
-                  Clean Log
-                </button>
+                <Tooltip :text="t('tooltips.logToggle')" position="bottom">
+                  <button
+                    class="log-toggle-button"
+                    :class="{ active: appSettings.isRecordLog }"
+                    @click="handleToggleRecordLog"
+                  >
+                    {{ appSettings.isRecordLog ? t('buttons.logOn') : t('buttons.logOff') }}
+                  </button>
+                </Tooltip>
+                <Tooltip :text="t('tooltips.cleanLog')" position="bottom">
+                  <button
+                    class="clear-button"
+                    @click="handleCleanLog"
+                  >
+                    {{ t('buttons.cleanLog') }}
+                  </button>
+                </Tooltip>
               </div>
             </div>
             <div class="performance-content">
@@ -131,6 +139,10 @@ import GamepadTabs from '../components/GamepadTabs.vue'
 import GamepadButtons from '../components/GamepadButtons.vue'
 import OptimizedJoystick from '../components/OptimizedJoystick.vue'
 import PollingRateDisplay from '../components/PollingRateDisplay.vue'
+import Tooltip from '../components/Tooltip.vue'
+
+// 引入 i18n
+import { useI18n } from '../i18n'
 
 // 1. 初始化应用管理器
 const {
@@ -174,6 +186,9 @@ const { registerCallback, cleanup: cleanupEventListeners } = useEventListeners()
 
 // 4. 初始化渲染管理器
 const { cleanup: cleanupRenderManager } = useRenderManager()
+
+// 5. 初始化国际化
+const { t, initLanguage } = useI18n()
 
 // --- 事件回调注册 ---
 registerCallback('gamepads_info', updateGamepadData)
@@ -224,6 +239,9 @@ const handleOuterDeadzoneUpdate = (value: number) => {
 // --- 生命周期钩子 ---
 onMounted(async () => {
   try {
+    // 初始化语言
+    initLanguage()
+    
     // 启动应用
     await initializeApp()
     

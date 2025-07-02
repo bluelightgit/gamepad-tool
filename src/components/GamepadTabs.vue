@@ -240,7 +240,7 @@ const handleTabClick = (id: number) => {
   }
   
   .gamepad-tab {
-    padding: 5px 8px;
+    padding: 6px 8px;
     min-width: 75px;
     font-size: 10px;
     gap: 3px;

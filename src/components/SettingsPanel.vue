@@ -51,6 +51,26 @@
             </div>
           </div>
           
+          <!-- 语言设置 -->
+          <div class="setting-group">
+            <label class="setting-label">{{ t('settings.language') }}</label>
+            <div class="language-dropdown">
+              <select 
+                :value="currentLanguage" 
+                @change="setLanguage(($event.target as HTMLSelectElement).value as any)"
+                class="language-select"
+              >
+                <option 
+                  v-for="lang in languages" 
+                  :key="lang.code" 
+                  :value="lang.code"
+                >
+                  {{ lang.nativeName }}
+                </option>
+              </select>
+            </div>
+          </div>
+          
           <!-- Deadzone设置 -->
           <div class="setting-group">
             <label class="setting-label">Joystick Deadzone</label>
@@ -96,6 +116,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from '../i18n'
 
 interface Props {
   currentFrameRate: number
@@ -115,6 +136,9 @@ interface Emits {
 
 defineProps<Props>()
 const emit = defineEmits<Emits>()
+
+// 国际化
+const { t, currentLanguage, languages, setLanguage } = useI18n()
 
 const isOpen = ref(false)
 
@@ -334,6 +358,38 @@ const updateOuterDeadzone = (value: string) => {
   background: #42b983;
   color: white;
   border-color: #42b983;
+}
+
+.language-button {
+  min-width: 80px;
+  text-align: center;
+  font-weight: 500;
+}
+
+.language-dropdown {
+  width: 100%;
+}
+
+.language-select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  font-size: 13px;
+  color: #333;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.language-select:hover {
+  border-color: #42b983;
+}
+
+.language-select:focus {
+  outline: none;
+  border-color: #42b983;
+  box-shadow: 0 0 0 2px rgba(66, 185, 131, 0.2);
 }
 
 .deadzone-controls {
