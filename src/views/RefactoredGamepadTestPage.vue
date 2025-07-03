@@ -195,9 +195,15 @@ registerCallback('gamepads_info', updateGamepadData)
 registerCallback('polling_rate_result', updatePollingRateData)
 
 // --- 业务逻辑和处理函数 ---
-const handleGamepadSelect = (id: number) => {
+const handleGamepadSelect = async (id: number) => {
   selectGamepad(id)
   updateSelectedGamepadId(id)
+  // 当手动切换手柄时，确保应用管理器也更新
+  try {
+    await updateSelectedGamepadId(id)
+  } catch (error) {
+    console.error("Failed to update selected gamepad:", error)
+  }
 }
 
 const handleFrameRateUpdate = (rate: number) => {
@@ -248,8 +254,34 @@ onMounted(async () => {
     // 获取初始手柄列表
     await updateGamepadIds()
     
-    // 设置定时器定期刷新手柄列表
-    const gamepadUpdateInterval = setInterval(updateGamepadIds, 2000)
+    // 设置定时器定期刷新手柄列表，并处理连接变化
+    const gamepadUpdateInterval = setInterval(async () => {
+      const previousSelectedId = selectedGamepadId.value
+      const previousIds = [...gamepadIds.value]
+      
+      await updateGamepadIds()
+      
+      // 检查选中的手柄是否改变（由于断开连接等原因）
+      if (selectedGamepadId.value !== previousSelectedId) {
+        console.log(`Gamepad changed from ${previousSelectedId} to ${selectedGamepadId.value}, updating app manager`)
+        try {
+          // 同步应用管理器的选中手柄ID
+          await updateSelectedGamepadId(selectedGamepadId.value)
+        } catch (error) {
+          console.error("Failed to sync gamepad selection with app manager:", error)
+        }
+      }
+      
+      // 检查手柄列表是否有变化
+      const currentIds = gamepadIds.value
+      const idsChanged = previousIds.length !== currentIds.length || 
+                         !previousIds.every(id => currentIds.includes(id))
+      
+      if (idsChanged) {
+        console.log('Gamepad list changed:', { previousIds, currentIds })
+      }
+    }, 2000)
+    
     onBeforeUnmount(() => clearInterval(gamepadUpdateInterval))
     
     // 注册一个渲染回调来更新UI（如果需要的话）

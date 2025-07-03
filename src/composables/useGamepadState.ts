@@ -207,13 +207,19 @@ export function useGamepadState() {
     }
   }
   
-  // 数据更新函数 - 使用对象引用比较避免不必要的更新
+  // 数据更新函数 - 使用对象引用比较避免不必要的更新，并验证手柄ID
   const updateGamepadData = (newData: GamepadInfo) => {
-    if (!newData || newData.id !== selectedGamepadId.value) return
+    if (!newData) return
+    
+    // 确保只更新当前选中手柄的数据
+    if (newData.id !== selectedGamepadId.value) {
+      return // 忽略其他手柄的数据
+    }
     
     // 浅比较检查是否真的有变化
     const current = currentGamepad.value
     if (current && 
+        current.id === newData.id &&
         current.name === newData.name &&
         current.power_info === newData.power_info) {
       
@@ -222,7 +228,8 @@ export function useGamepadState() {
       let hasAxisChange = false
       
       for (const key in newData.buttons) {
-        if (current.buttons[key]?.value !== newData.buttons[key]?.value) {
+        if (current.buttons[key]?.value !== newData.buttons[key]?.value ||
+            current.buttons[key]?.is_pressed !== newData.buttons[key]?.is_pressed) {
           hasButtonChange = true
           break
         }
@@ -248,27 +255,82 @@ export function useGamepadState() {
     updateJoystickHistory()
   }
   
-  // 轮询率数据更新
-  const updatePollingRateData = (data: PollingRateResult) => {
+  // 轮询率数据更新 - 修复闪烁问题，确保只更新对应手柄的数据
+  const updatePollingRateData = (data: PollingRateResult & { gamepad_id?: number }) => {
+    // 如果数据包含手柄ID，只有当它匹配当前选中的手柄时才更新
+    if (data.gamepad_id !== undefined && data.gamepad_id !== selectedGamepadId.value) {
+      return // 忽略其他手柄的数据
+    }
+    
     const userId = selectedGamepadId.value.toString()
-    pollingRateData[userId] = data
+    pollingRateData[userId] = {
+      polling_rate_avg: data.polling_rate_avg,
+      polling_rate_min: data.polling_rate_min,
+      polling_rate_max: data.polling_rate_max,
+      avg_interval: data.avg_interval,
+      drop_rate: data.drop_rate,
+      avg_error_l: data.avg_error_l,
+      avg_error_r: data.avg_error_r
+    }
   }
   
-  // 手柄ID更新
+  // 手柄ID更新 - 修复断开连接问题
   const updateGamepadIds = async (): Promise<number[]> => {
     try {
       const ids = await invoke<number[]>("get_gamepad_ids")
+      const previousIds = [...gamepadIds.value]
+      const currentSelectedId = selectedGamepadId.value
+      
       gamepadIds.value = ids.length > 0 ? ids : [0]
       
-      // 如果当前选中的ID不在列表中，选择第一个
-      if (!gamepadIds.value.includes(selectedGamepadId.value)) {
-        selectedGamepadId.value = gamepadIds.value[0]
+      // 检查当前选中的手柄是否仍然可用
+      if (!gamepadIds.value.includes(currentSelectedId)) {
+        console.log(`Gamepad ${currentSelectedId} disconnected, switching to available gamepad`)
+        
+        // 选择第一个可用的手柄
+        const newSelectedId = gamepadIds.value[0]
+        selectedGamepadId.value = newSelectedId
+        
+        // 重置当前手柄数据为默认数据，避免显示已断开手柄的数据
+        currentGamepad.value = createDefaultGamepad(newSelectedId)
+        triggerRef(currentGamepad)
+        
+        // 清空历史数据
+        leftJoystickHistory.value = []
+        rightJoystickHistory.value = []
+        
+        // 重置轮询率数据
+        const userId = newSelectedId.toString()
+        if (!pollingRateData[userId]) {
+          pollingRateData[userId] = createDefaultPollingRateResult()
+        }
+        
+        console.log(`Switched to gamepad ${newSelectedId}`)
+      }
+      
+      // 如果手柄列表发生变化，触发重新初始化
+      const idsChanged = previousIds.length !== gamepadIds.value.length || 
+                         !previousIds.every(id => gamepadIds.value.includes(id))
+      
+      if (idsChanged) {
+        console.log('Gamepad list changed, triggering refresh')
+        // 可以在这里触发重新初始化或其他必要的操作
       }
       
       return gamepadIds.value
     } catch (error) {
       console.error("Error updating gamepad IDs:", error)
       gamepadIds.value = [0]
+      
+      // 发生错误时也要检查当前选中的手柄
+      if (selectedGamepadId.value !== 0) {
+        selectedGamepadId.value = 0
+        currentGamepad.value = createDefaultGamepad(0)
+        triggerRef(currentGamepad)
+        leftJoystickHistory.value = []
+        rightJoystickHistory.value = []
+      }
+      
       return [0]
     }
   }
@@ -276,10 +338,24 @@ export function useGamepadState() {
   // 选择手柄
   const selectGamepad = (id: number) => {
     if (selectedGamepadId.value !== id && isGamepadAvailable(id)) {
+      const previousId = selectedGamepadId.value
       selectedGamepadId.value = id
+      
+      // 重置当前手柄数据为新手柄的默认数据
+      currentGamepad.value = createDefaultGamepad(id)
+      triggerRef(currentGamepad)
+      
       // 清空历史数据
       leftJoystickHistory.value = []
       rightJoystickHistory.value = []
+      
+      // 确保新手柄有默认的轮询率数据
+      const userId = id.toString()
+      if (!pollingRateData[userId]) {
+        pollingRateData[userId] = createDefaultPollingRateResult()
+      }
+      
+      console.log(`Switched from gamepad ${previousId} to ${id}`)
     }
   }
   
