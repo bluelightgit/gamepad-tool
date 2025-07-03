@@ -21,7 +21,7 @@ impl MathUtil {
         }
     }
 
-    pub fn calc_frequency<T: PartialEq>(&mut self, logs: Vec<(i64, T)>) -> Option<(f64, f64, f64, f64)> {
+    pub fn calc_frequency<T: PartialEq>(&mut self, logs: &Vec<(i64, T)>) -> Option<(f64, f64, f64, f64)> {
         let mut sum: f64 = 0.0;
         let mut valid_count: u64 = 0;
         logs.windows(2)

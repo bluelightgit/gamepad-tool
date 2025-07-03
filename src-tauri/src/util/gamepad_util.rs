@@ -5,9 +5,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
-const MAX_LOG_SIZE: usize = 1000;
+const DEFAULT_LOG_SIZE: usize = 2000;
 const CALCULATE_INTERVAL: usize = 100; // caluculate onece per 100 logs
 const MAX_R: f64 = 32767.0f64; // 最大圆半径
+const DEFAULT_DIR_PRECISION: u32 = 0;
+
 #[derive(Debug, Clone)]
 pub struct GamepadState {
     pub xinput_state: XInput,
@@ -19,7 +21,7 @@ pub struct GamepadState {
 pub struct Memo {
     pub polling_rate_log: Vec<PollingRateLog>,
     pub polling_rate_result: PollingRateResult,
-    pub direction_bins: (HashMap<Direction, u32>, HashMap<Direction, u32>),
+    pub direction_bins: (HashMap<Direction, f32>, HashMap<Direction, f32>),
     pub math_utils: MathUtil,
     pub log_size: usize,
     pub instant: Instant,
@@ -28,11 +30,11 @@ pub struct Memo {
 impl Memo {
     pub fn new() -> Self {
         Memo {
-            polling_rate_log: Vec::new(),
+            polling_rate_log: Vec::with_capacity(DEFAULT_LOG_SIZE),
             polling_rate_result: PollingRateResult::new(),
             direction_bins: (HashMap::new(), HashMap::new()),
             math_utils: MathUtil::new(),
-            log_size: MAX_LOG_SIZE,
+            log_size: DEFAULT_LOG_SIZE,
             instant: Instant::now(),
         }
     }
@@ -119,30 +121,28 @@ impl GamepadState {
         cur
     }
 
-    pub fn get_polling_rate(&mut self, user_index: u32) -> PollingRateResult {
+    pub fn get_polling_rate(&mut self, user_index: u32) {
         let memo = self.memo.entry(user_index).or_insert(Memo::new());
         let logs = &memo.polling_rate_log;
         let math_util = &mut memo.math_utils;
         let result = math_util
             .calc_frequency(
-                logs.iter()
-                    .map(|log| (log.timestamp as i64, log.xyxy.clone()))
+                &logs.iter()
+                    .map(|log| (log.timestamp as i64, &log.xyxy))
                     .collect(),
             )
             .unwrap();
-        let polling_rate_result = PollingRateResult {
+        memo.polling_rate_result = PollingRateResult {
             polling_rate_avg: result.0,
             polling_rate_min: result.1,
             polling_rate_max: result.2,
             avg_interval: result.3,
-            avg_error_l: calc_avg_error(memo.direction_bins.0.clone()),
-            avg_error_r: calc_avg_error(memo.direction_bins.1.clone()),
+            avg_error_l: calc_avg_error(&memo.direction_bins.0),
+            avg_error_r: calc_avg_error(&memo.direction_bins.1),
         };
-        memo.polling_rate_result = polling_rate_result.clone();
-        polling_rate_result
     }
 
-    pub fn record(&mut self, user_index: u32, is_filter_duplicate: bool) -> PollingRateLog {
+    pub fn record(&mut self, user_index: u32, is_filter_duplicate: bool) {
         let memo = self.memo.entry(user_index).or_insert(Memo::new());
         let logs = &mut memo.polling_rate_log;
         let direction_log = &mut memo.direction_bins;
@@ -157,17 +157,22 @@ impl GamepadState {
         {
             println!("PollingRateLog: {:?}", log);
         }
-        if is_filter_duplicate && logs.len() > 0 && logs.last().unwrap().xyxy == log.xyxy {
-            return log;
-        } else {
-            logs.push(log.clone());
-            let theta_l = Direction::new(atan2(xyxy.1 as f64, xyxy.0 as f64), 0);
-            let theta_r = Direction::new(atan2(xyxy.3 as f64, xyxy.2 as f64), 0);
-            let r_l = ((xyxy.0 as f64).powi(2) + (xyxy.1 as f64).powi(2)).sqrt() as u32;
-            let r_r = ((xyxy.2 as f64).powi(2) + (xyxy.3 as f64).powi(2)).sqrt() as u32;
-            direction_log.0.entry(theta_l).or_insert(r_l);
-            direction_log.1.entry(theta_r).or_insert(r_r);
+        if is_filter_duplicate && logs.len() > 0 {
+            if let Some(last_log) = logs.last() {
+                if last_log.xyxy == xyxy {
+                    return;
+                }
+            }
         }
+
+        logs.push(log);
+        let theta_l = Direction::new(atan2(xyxy.1 as f64, xyxy.0 as f64), DEFAULT_DIR_PRECISION);
+        let theta_r = Direction::new(atan2(xyxy.3 as f64, xyxy.2 as f64), DEFAULT_DIR_PRECISION);
+        let r_l = ((xyxy.0 as f64).powi(2) + (xyxy.1 as f64).powi(2)).sqrt() as f32;
+        let r_r = ((xyxy.2 as f64).powi(2) + (xyxy.3 as f64).powi(2)).sqrt() as f32;
+        direction_log.0.entry(theta_l).and_modify(|r| *r = r_l.max(*r)).or_insert(r_l);
+        direction_log.1.entry(theta_r).and_modify(|r| *r = r_r.max(*r)).or_insert(r_r);
+    
 
         // 限制日志长度
         if logs.len() > memo.log_size {
@@ -179,13 +184,12 @@ impl GamepadState {
         if logs.len() % CALCULATE_INTERVAL == 0 {
             self.get_polling_rate(user_index);
         }
-
-        log
     }
 
     pub fn set_log_size(&mut self, log_size: usize) {
         self.memo.iter_mut().for_each(|(_, memo)| {
             memo.log_size = log_size;
+            memo.polling_rate_log = Vec::with_capacity(log_size);
         });
     }
 
@@ -195,11 +199,11 @@ impl GamepadState {
     }
 }
 
-fn calc_avg_error<T>(dir_bin: HashMap<T, u32>) -> f64 {
+fn calc_avg_error<T>(dir_bin: &HashMap<T, f32>) -> f64 {
     let length = dir_bin.len();
     let n = if length == 0 { 1 } else { length } as f64;
-    let sum = dir_bin.iter().map(|(_, v)| v).sum::<u32>() as f64;
-    1.0f64 - ((sum / n) / MAX_R)
+    let sum = dir_bin.iter().map(|(_, v)| v).sum::<f32>() as f64;
+    (1.0f64 - ((sum / n) / MAX_R)).abs()
 }
 
 pub fn polling_rate_log_to_output_log(logs: &Vec<PollingRateLog>) -> Vec<OutputLog> {
