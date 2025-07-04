@@ -3,6 +3,7 @@ use crate::util::math_util::MathUtil;
 use libm::atan2;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 const DEFAULT_LOG_SIZE: usize = 2000;
@@ -10,11 +11,11 @@ const CALCULATE_INTERVAL: usize = 100; // caluculate onece per 100 logs
 const MAX_R: f64 = 32767.0f64; // 最大圆半径
 const DEFAULT_DIR_PRECISION: u32 = 0;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct GamepadState {
     pub xinput_state: XInput,
-    pub cur_gamepads: HashSet<u32>,
-    pub memo: HashMap<u32, Memo>,
+    pub cur_gamepads: Arc<Mutex<HashSet<u32>>>,
+    pub memo: Arc<Mutex<HashMap<u32, Memo>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -38,14 +39,24 @@ impl Memo {
             instant: Instant::now(),
         }
     }
+
+    pub fn reset(&mut self) {
+        self.polling_rate_log.clear();
+        self.polling_rate_result = PollingRateResult::new();
+        self.direction_bins = (HashMap::new(), HashMap::new());
+        self.math_utils = MathUtil::new();
+        self.instant = Instant::now();
+    }
 }
+
+unsafe impl Send for GamepadState {}
 
 impl GamepadState {
     pub fn new() -> Self {
         GamepadState {
             xinput_state: XInput::new(),
-            cur_gamepads: HashSet::new(),
-            memo: HashMap::new(),
+            cur_gamepads: Arc::new(Mutex::new(HashSet::with_capacity(10))),
+            memo: Arc::new(Mutex::new(HashMap::with_capacity(10))),
         }
     }
 
@@ -104,9 +115,11 @@ impl GamepadState {
         for user_index in self.get_cur_gamepads().iter() {
             // 构造 GamepadInfo
             let gamepad_info = self.get_xinput_gamepad(*user_index);
-            self.cur_gamepads.insert(*user_index);
-            // self.record_polling_rate(user_index, true);
-            infos.insert(gamepad_info.id, gamepad_info);
+            if let Some(_gamepad) = self.xinput_state.get_controller(*user_index) {
+                infos.insert(*user_index, gamepad_info);
+            } else {
+                self.cur_gamepads.lock().unwrap().remove(user_index);
+            }
         }
 
         infos
@@ -114,36 +127,16 @@ impl GamepadState {
 
     pub fn get_cur_gamepads(&mut self) -> HashSet<u32> {
         let cur: HashSet<u32> = self.xinput_state.all_device_id().iter().cloned().collect();
-        if cur != self.cur_gamepads {
-            self.cur_gamepads = cur.clone();
-            self.memo.clear();
+        if cur.len() > 0 {
+            let mut cur_gamepads = self.cur_gamepads.lock().unwrap();
+            *cur_gamepads = cur.clone();
         }
         cur
     }
 
-    pub fn get_polling_rate(&mut self, user_index: u32) {
-        let memo = self.memo.entry(user_index).or_insert(Memo::new());
-        let logs = &memo.polling_rate_log;
-        let math_util = &mut memo.math_utils;
-        let result = math_util
-            .calc_frequency(
-                &logs.iter()
-                    .map(|log| (log.timestamp as i64, &log.xyxy))
-                    .collect(),
-            )
-            .unwrap();
-        memo.polling_rate_result = PollingRateResult {
-            polling_rate_avg: result.0,
-            polling_rate_min: result.1,
-            polling_rate_max: result.2,
-            avg_interval: result.3,
-            avg_error_l: calc_avg_error(&memo.direction_bins.0),
-            avg_error_r: calc_avg_error(&memo.direction_bins.1),
-        };
-    }
-
     pub fn record(&mut self, user_index: u32, is_filter_duplicate: bool) {
-        let memo = self.memo.entry(user_index).or_insert(Memo::new());
+        let mut memo_map = self.memo.lock().unwrap();
+        let memo = memo_map.entry(user_index).or_insert(Memo::new());
         let logs = &mut memo.polling_rate_log;
         let direction_log = &mut memo.direction_bins;
         self.xinput_state.update(user_index);
@@ -170,9 +163,16 @@ impl GamepadState {
         let theta_r = Direction::new(atan2(xyxy.3 as f64, xyxy.2 as f64), DEFAULT_DIR_PRECISION);
         let r_l = ((xyxy.0 as f64).powi(2) + (xyxy.1 as f64).powi(2)).sqrt() as f32;
         let r_r = ((xyxy.2 as f64).powi(2) + (xyxy.3 as f64).powi(2)).sqrt() as f32;
-        direction_log.0.entry(theta_l).and_modify(|r| *r = r_l.max(*r)).or_insert(r_l);
-        direction_log.1.entry(theta_r).and_modify(|r| *r = r_r.max(*r)).or_insert(r_r);
-    
+        direction_log
+            .0
+            .entry(theta_l)
+            .and_modify(|r| *r = r_l.max(*r))
+            .or_insert(r_l);
+        direction_log
+            .1
+            .entry(theta_r)
+            .and_modify(|r| *r = r_r.max(*r))
+            .or_insert(r_r);
 
         // 限制日志长度
         if logs.len() > memo.log_size {
@@ -182,21 +182,45 @@ impl GamepadState {
 
         // 每100条记录计算一次
         if logs.len() % CALCULATE_INTERVAL == 0 {
-            self.get_polling_rate(user_index);
+            get_performance_stat(memo);
         }
     }
 
     pub fn set_log_size(&mut self, log_size: usize) {
-        self.memo.iter_mut().for_each(|(_, memo)| {
+        let mut memo_map = self.memo.lock().unwrap();
+        memo_map.iter_mut().for_each(|(_, memo)| {
             memo.log_size = log_size;
             memo.polling_rate_log = Vec::with_capacity(log_size);
         });
     }
 
     pub fn reset(&mut self) {
-        self.cur_gamepads.clear();
-        self.memo.clear();
+        let mut memo_map = self.memo.lock().unwrap();
+        memo_map.iter_mut().for_each(|(_, memo)| {
+            memo.reset();
+        });
     }
+}
+
+pub fn get_performance_stat(memo: &mut Memo) {
+    let logs = &memo.polling_rate_log;
+    let math_util = &mut memo.math_utils;
+    let result = math_util
+        .calc_frequency(
+            &logs
+                .iter()
+                .map(|log| (log.timestamp as i64, &log.xyxy))
+                .collect(),
+        )
+        .unwrap();
+    memo.polling_rate_result = PollingRateResult {
+        polling_rate_avg: result.0,
+        polling_rate_min: result.1,
+        polling_rate_max: result.2,
+        avg_interval: result.3,
+        avg_error_l: calc_avg_error(&memo.direction_bins.0),
+        avg_error_r: calc_avg_error(&memo.direction_bins.1),
+    };
 }
 
 fn calc_avg_error<T>(dir_bin: &HashMap<T, f32>) -> f64 {

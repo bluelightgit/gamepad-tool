@@ -13,10 +13,10 @@ use crate::{
 use tokio::time::{self, Duration};
 
 const STANDBY_SLEEP_TIME: u64 = 10000;
-const POLLING_RATE_MICROSECONDS: u64 = 250; // 0.25ms = 8000Hz 轮询率
+const POLLING_RATE_MICROSECONDS: u64 = 250; // 0.25ms = 4000Hz 轮询率
 
 pub struct GlobalGamepadState {
-    pub mutex_state: Arc<Mutex<GamepadState>>,
+    pub pad_state: GamepadState,
     /// 当值为 true 时，表示更新任务正在运行
     pub update_running: Arc<AtomicBool>,
 }
@@ -24,7 +24,7 @@ pub struct GlobalGamepadState {
 impl Default for GlobalGamepadState {
     fn default() -> Self {
         Self {
-            mutex_state: Arc::new(Mutex::new(GamepadState::new())),
+            pad_state: GamepadState::new(),
             update_running: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -37,10 +37,7 @@ pub fn stop_update(state: tauri::State<'_, GlobalGamepadState>) {
 
 #[tauri::command]
 pub fn get_gamepad_ids(state: tauri::State<'_, GlobalGamepadState>) -> Vec<u32> {
-    let mut gamepad_state = state.mutex_state.lock().unwrap();
-    let mut ids: Vec<u32> = gamepad_state
-        .get_cur_gamepads()
-        .iter()
+    let mut ids: Vec<u32> = state.pad_state.get_cur_gamepads().iter()
         .map(|id| *id)
         .collect();
     ids.sort();
@@ -49,14 +46,12 @@ pub fn get_gamepad_ids(state: tauri::State<'_, GlobalGamepadState>) -> Vec<u32> 
 
 #[tauri::command]
 pub fn set_log_size(state: tauri::State<'_, GlobalGamepadState>, log_size: usize) {
-    let mut gamepad_state = state.mutex_state.lock().unwrap();
-    gamepad_state.set_log_size(log_size);
+    let mut gamepad_state = state.pad_state.set_log_size(log_size);
 }
 
 #[tauri::command]
 pub fn clean_log(state: tauri::State<'_, GlobalGamepadState>) {
-    let mut gamepad_state = state.mutex_state.lock().unwrap();
-    gamepad_state.reset();
+    state.pad_state.reset();
 }
 
 #[tauri::command]
@@ -74,18 +69,17 @@ pub fn start_update(
     let cancel_flag = state.update_running.clone();
     let polling_cancel_flag = cancel_flag.clone();
 
-    let mutex_state = Arc::clone(&state.mutex_state);
+    let pad_state = state.pad_state;
 
-    // 方案C: 使用原生线程进行高频轮询（推荐）
-    let polling_mutex_state = mutex_state.clone();
+    let polling_pad_state = pad_state.clone();
     if is_record_log {
         let polling_cancel_flag_clone = polling_cancel_flag.clone();
         thread::spawn(move || {
             use std::time::{Duration as StdDuration, Instant};
-            
+
             let polling_interval = StdDuration::from_micros(POLLING_RATE_MICROSECONDS);
             let standby_interval = StdDuration::from_micros(STANDBY_SLEEP_TIME);
-            
+
             let mut next_poll_time = Instant::now() + polling_interval;
             let mut next_standby_time = Instant::now() + standby_interval;
 
@@ -93,10 +87,10 @@ pub fn start_update(
                 if !polling_cancel_flag_clone.load(Ordering::SeqCst) {
                     break;
                 }
-                
+
                 // 快速检查是否有游戏手柄连接
                 let has_gamepads = {
-                    if let Ok(mut gamepad_state) = polling_mutex_state.try_lock() {
+                    if let Ok(mut gamepad_state) = polling_pad_state.try_lock() {
                         !gamepad_state.get_cur_gamepads().is_empty()
                     } else {
                         true // 如果无法获取锁，假设有游戏手柄继续轮询
@@ -114,7 +108,7 @@ pub fn start_update(
                 }
 
                 // 高频记录游戏手柄状态
-                if let Ok(mut gamepad_state) = polling_mutex_state.try_lock() {
+                if let Ok(mut gamepad_state) = polling_pad_state.try_lock() {
                     gamepad_state.record(user_id, true);
                 }
 
@@ -139,9 +133,10 @@ pub fn start_update(
 
             // 获取数据并发送
             let data_result = {
-                if let Ok(mut gamepad_state) = mutex_state.try_lock() {
+                if let Ok(mut gamepad_state) = pad_state.try_lock() {
                     let gamepad = gamepad_state.get_xinput_gamepad(user_id);
-                    let memo = gamepad_state.memo.get(&user_id);
+                    let memo_map = gamepad_state.memo.try_lock().unwrap();
+                    let memo = memo_map.get(&user_id);
 
                     let (polling_rate_log, polling_rate_result) = if let Some(memo) = memo {
                         (
