@@ -13,7 +13,7 @@ const DEFAULT_DIR_PRECISION: u32 = 0;
 
 #[derive(Debug)]
 pub struct GamepadState {
-    pub xinput_state: XInput,
+    pub xinput_state: Arc<XInput>,
     pub cur_gamepads: Arc<Mutex<HashSet<u32>>>,
     pub memo: Arc<Mutex<HashMap<u32, Memo>>>,
 }
@@ -54,16 +54,18 @@ unsafe impl Send for GamepadState {}
 impl GamepadState {
     pub fn new() -> Self {
         GamepadState {
-            xinput_state: XInput::new(),
+            xinput_state: Arc::new(XInput::new()),
             cur_gamepads: Arc::new(Mutex::new(HashSet::with_capacity(10))),
             memo: Arc::new(Mutex::new(HashMap::with_capacity(10))),
         }
     }
 
-    /// 从 XInput 控制器状态构造 GamepadInfo
-    pub fn get_xinput_gamepad(&mut self, user_index: u32) -> GamepadInfo {
-        self.xinput_state.update(user_index);
-        let gamepad = self.xinput_state.get_controller(user_index).unwrap();
+    /// 线程安全地从 XInput 控制器状态构造 GamepadInfo
+    pub fn get_xinput_gamepad(&self, user_index: u32) -> GamepadInfo {
+        let xinput_state = self.xinput_state.clone();
+        xinput_state.update(user_index);
+        let gamepad = xinput_state.get_controller(user_index).unwrap();
+
         // 映射按钮
         let buttons = gamepad
             .buttons
@@ -79,6 +81,7 @@ impl GamepadState {
                 )
             })
             .collect::<HashMap<String, ButtonData>>();
+
         // 映射轴
         let axes = gamepad
             .axes
@@ -93,6 +96,7 @@ impl GamepadState {
                 )
             })
             .collect::<HashMap<String, AxisData>>();
+
         let vendor_id = 0;
         let product_id = 0;
         let name = format!("Xinput Controller {}", user_index);
@@ -110,95 +114,119 @@ impl GamepadState {
         }
     }
 
-    pub fn get_xinput_gamepads(&mut self) -> HashMap<u32, GamepadInfo> {
-        let mut infos: HashMap<u32, GamepadInfo> = HashMap::new();
-        for user_index in self.get_cur_gamepads().iter() {
-            // 构造 GamepadInfo
-            let gamepad_info = self.get_xinput_gamepad(*user_index);
-            if let Some(_gamepad) = self.xinput_state.get_controller(*user_index) {
-                infos.insert(*user_index, gamepad_info);
-            } else {
-                self.cur_gamepads.lock().unwrap().remove(user_index);
-            }
-        }
-
-        infos
-    }
-
-    pub fn get_cur_gamepads(&mut self) -> HashSet<u32> {
-        let cur: HashSet<u32> = self.xinput_state.all_device_id().iter().cloned().collect();
-        if cur.len() > 0 {
-            let mut cur_gamepads = self.cur_gamepads.lock().unwrap();
-            *cur_gamepads = cur.clone();
-        }
-        cur
-    }
-
-    pub fn record(&mut self, user_index: u32, is_filter_duplicate: bool) {
-        let mut memo_map = self.memo.lock().unwrap();
-        let memo = memo_map.entry(user_index).or_insert(Memo::new());
-        let logs = &mut memo.polling_rate_log;
-        let direction_log = &mut memo.direction_bins;
-        self.xinput_state.update(user_index);
-        let xyxy = self.xinput_state.get_axis_val().unwrap();
-        let log = PollingRateLog {
-            timestamp: memo.instant.elapsed().as_micros() as u64,
-            xyxy,
-        };
-
-        #[cfg(debug_assertions)]
-        {
-            println!("PollingRateLog: {:?}", log);
-        }
-        if is_filter_duplicate && logs.len() > 0 {
-            if let Some(last_log) = logs.last() {
-                if last_log.xyxy == xyxy {
-                    return;
+    /// 线程安全地获取当前游戏手柄IDs
+    pub fn get_cur_gamepads(&self) -> HashSet<u32> {
+        if let Ok(xinput_state) = self.xinput_state.lock() {
+            let cur: HashSet<u32> = xinput_state.all_device_id().iter().cloned().collect();
+            if !cur.is_empty() {
+                if let Ok(mut cur_gamepads) = self.cur_gamepads.lock() {
+                    *cur_gamepads = cur.clone();
                 }
             }
-        }
-
-        logs.push(log);
-        let theta_l = Direction::new(atan2(xyxy.1 as f64, xyxy.0 as f64), DEFAULT_DIR_PRECISION);
-        let theta_r = Direction::new(atan2(xyxy.3 as f64, xyxy.2 as f64), DEFAULT_DIR_PRECISION);
-        let r_l = ((xyxy.0 as f64).powi(2) + (xyxy.1 as f64).powi(2)).sqrt() as f32;
-        let r_r = ((xyxy.2 as f64).powi(2) + (xyxy.3 as f64).powi(2)).sqrt() as f32;
-        direction_log
-            .0
-            .entry(theta_l)
-            .and_modify(|r| *r = r_l.max(*r))
-            .or_insert(r_l);
-        direction_log
-            .1
-            .entry(theta_r)
-            .and_modify(|r| *r = r_r.max(*r))
-            .or_insert(r_r);
-
-        // 限制日志长度
-        if logs.len() > memo.log_size {
-            logs.drain(0..=CALCULATE_INTERVAL);
-            // logs.remove(0);
-        }
-
-        // 每100条记录计算一次
-        if logs.len() % CALCULATE_INTERVAL == 0 {
-            get_performance_stat(memo);
+            cur
+        } else {
+            HashSet::new()
         }
     }
 
-    pub fn set_log_size(&mut self, log_size: usize) {
-        let mut memo_map = self.memo.lock().unwrap();
-        memo_map.iter_mut().for_each(|(_, memo)| {
-            memo.log_size = log_size;
-            memo.polling_rate_log = Vec::with_capacity(log_size);
-        });
+    /// 线程安全地记录游戏手柄数据
+    pub fn record(&self, user_index: u32, is_filter_duplicate: bool) {
+        // 获取轴值
+        let xyxy = if let Ok(mut xinput_state) = self.xinput_state.lock() {
+            xinput_state.update(user_index);
+            xinput_state.get_axis_val().unwrap_or((0, 0, 0, 0))
+        } else {
+            (0, 0, 0, 0)
+        };
+
+        // 记录数据
+        if let Ok(mut memo_map) = self.memo.lock() {
+            let memo = memo_map.entry(user_index).or_insert(Memo::new());
+            let logs = &mut memo.polling_rate_log;
+            let direction_log = &mut memo.direction_bins;
+
+            let log = PollingRateLog {
+                timestamp: memo.instant.elapsed().as_micros() as u64,
+                xyxy,
+            };
+
+            #[cfg(debug_assertions)]
+            {
+                println!("PollingRateLog: {:?}", log);
+            }
+
+            if is_filter_duplicate && !logs.is_empty() {
+                if let Some(last_log) = logs.last() {
+                    if last_log.xyxy == xyxy {
+                        return;
+                    }
+                }
+            }
+
+            logs.push(log);
+            let theta_l =
+                Direction::new(atan2(xyxy.1 as f64, xyxy.0 as f64), DEFAULT_DIR_PRECISION);
+            let theta_r =
+                Direction::new(atan2(xyxy.3 as f64, xyxy.2 as f64), DEFAULT_DIR_PRECISION);
+            let r_l = ((xyxy.0 as f64).powi(2) + (xyxy.1 as f64).powi(2)).sqrt() as f32;
+            let r_r = ((xyxy.2 as f64).powi(2) + (xyxy.3 as f64).powi(2)).sqrt() as f32;
+            direction_log
+                .0
+                .entry(theta_l)
+                .and_modify(|r| *r = r_l.max(*r))
+                .or_insert(r_l);
+            direction_log
+                .1
+                .entry(theta_r)
+                .and_modify(|r| *r = r_r.max(*r))
+                .or_insert(r_r);
+
+            // 限制日志长度
+            if logs.len() > memo.log_size {
+                logs.drain(0..=CALCULATE_INTERVAL);
+            }
+
+            // 每100条记录计算一次
+            if logs.len() % CALCULATE_INTERVAL == 0 {
+                get_performance_stat(memo);
+            }
+        }
     }
 
-    pub fn reset(&mut self) {
-        let mut memo_map = self.memo.lock().unwrap();
-        memo_map.iter_mut().for_each(|(_, memo)| {
-            memo.reset();
-        });
+    /// 线程安全地设置日志大小
+    pub fn set_log_size(&self, log_size: usize) {
+        if let Ok(mut memo_map) = self.memo.lock() {
+            memo_map.iter_mut().for_each(|(_, memo)| {
+                memo.log_size = log_size;
+                memo.polling_rate_log = Vec::with_capacity(log_size);
+            });
+        }
+    }
+
+    /// 线程安全地重置状态
+    pub fn reset(&self) {
+        if let Ok(mut memo_map) = self.memo.lock() {
+            memo_map.iter_mut().for_each(|(_, memo)| {
+                memo.reset();
+            });
+        }
+    }
+
+    /// 线程安全地获取轮询率数据
+    pub fn get_polling_data(
+        &self,
+        user_id: u32,
+    ) -> Option<(Vec<PollingRateLog>, PollingRateResult)> {
+        if let Ok(memo_map) = self.memo.lock() {
+            memo_map.get(&user_id).map(|memo| {
+                (
+                    memo.polling_rate_log.clone(),
+                    memo.polling_rate_result.clone(),
+                )
+            })
+        } else {
+            None
+        }
     }
 }
 
