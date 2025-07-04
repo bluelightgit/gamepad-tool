@@ -71,10 +71,14 @@ pub fn start_update(
     frame_rate: u64,
     is_record_log: bool,
 ) {
-    // 如果已经在更新则不重复启动
-    if state.update_running.swap(true, Ordering::SeqCst) {
-        return;
+    // 如果已经在更新，先停止旧的任务
+    if state.update_running.load(Ordering::SeqCst) {
+        state.update_running.store(false, Ordering::SeqCst);
+        thread::sleep(Duration::from_micros(STANDBY_SLEEP_TIME));
     }
+    
+    // 启动新的更新任务
+    state.update_running.store(true, Ordering::SeqCst);
     let cancel_flag = state.update_running.clone();
     let polling_cancel_flag = cancel_flag.clone();
 

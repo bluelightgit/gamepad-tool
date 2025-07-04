@@ -1094,7 +1094,7 @@ dependencies = [
 
 [[package]]
 name = "gamepad-tool"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "libm",
  "rand 0.9.1",
