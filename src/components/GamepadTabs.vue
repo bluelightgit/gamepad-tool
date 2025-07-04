@@ -1,6 +1,13 @@
 <template>
   <div class="gamepad-tabs">
     <div class="tabs-container">
+      <!-- 显示无手柄状态 -->
+      <div v-if="availableIds.length === 0" class="no-gamepad-message">
+        <span class="no-gamepad-icon">🎮</span>
+        <span class="no-gamepad-text">No Gamepad Connected</span>
+      </div>
+      
+      <!-- 显示可用的手柄标签 -->
       <button
         v-for="id in availableIds"
         :key="id"
@@ -37,6 +44,7 @@
 </template>
 
 <script setup lang="ts">
+import { watch, onMounted } from 'vue'
 import SettingsPanel from './SettingsPanel.vue'
 
 interface Props {
@@ -67,6 +75,43 @@ const handleTabClick = (id: number) => {
     emit('select', id)
   }
 }
+
+// 检查当前选中的手柄是否可用，如果不可用则自动切换
+const checkAndSwitchGamepad = () => {
+  // 如果没有任何可用的手柄，不需要切换
+  if (props.availableIds.length === 0) {
+    return
+  }
+  
+  // 如果当前选中的手柄不在可用列表中，或者不可用
+  if (props.selectedId === -1 || 
+      !props.availableIds.includes(props.selectedId) || 
+      !props.isGamepadAvailable(props.selectedId)) {
+    
+    // 找到第一个可用的手柄
+    const firstAvailableId = props.availableIds.find(id => props.isGamepadAvailable(id))
+    
+    if (firstAvailableId !== undefined && firstAvailableId !== props.selectedId) {
+      console.log(`GamepadTabs: Current gamepad ${props.selectedId} not available, switching to ${firstAvailableId}`)
+      emit('select', firstAvailableId)
+    }
+  }
+}
+
+// 监听可用手柄列表的变化
+watch(() => props.availableIds, () => {
+  checkAndSwitchGamepad()
+}, { immediate: true })
+
+// 监听当前选中的手柄变化
+watch(() => props.selectedId, () => {
+  checkAndSwitchGamepad()
+})
+
+// 组件挂载时也检查一次
+onMounted(() => {
+  checkAndSwitchGamepad()
+})
 </script>
 
 <style scoped>
@@ -271,4 +316,26 @@ const handleTabClick = (id: number) => {
   .settings-wrapper {
     align-self: center;
   }
-}</style>
+}
+
+.no-gamepad-message {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #f5f5f5;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  color: #999;
+  font-weight: 500;
+  font-size: 0.9em;
+}
+
+.no-gamepad-icon {
+  opacity: 0.6;
+}
+
+.no-gamepad-text {
+  white-space: nowrap;
+}
+</style>

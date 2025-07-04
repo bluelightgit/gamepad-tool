@@ -3,7 +3,7 @@ use crate::util::math_util::MathUtil;
 use libm::atan2;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
 const DEFAULT_LOG_SIZE: usize = 2000;
@@ -15,7 +15,7 @@ const DEFAULT_DIR_PRECISION: u32 = 0;
 pub struct GamepadState {
     pub xinput_state: Arc<XInput>,
     pub cur_gamepads: Arc<Mutex<HashSet<u32>>>,
-    pub memo: Arc<Mutex<HashMap<u32, Memo>>>,
+    pub memo: Arc<RwLock<HashMap<u32, Memo>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -56,15 +56,21 @@ impl GamepadState {
         GamepadState {
             xinput_state: Arc::new(XInput::new()),
             cur_gamepads: Arc::new(Mutex::new(HashSet::with_capacity(10))),
-            memo: Arc::new(Mutex::new(HashMap::with_capacity(10))),
+            memo: Arc::new(RwLock::new(HashMap::with_capacity(10))),
         }
     }
 
     /// 线程安全地从 XInput 控制器状态构造 GamepadInfo
-    pub fn get_xinput_gamepad(&self, user_index: u32) -> GamepadInfo {
-        let xinput_state = self.xinput_state.clone();
-        xinput_state.update(user_index);
-        let gamepad = xinput_state.get_controller(user_index).unwrap();
+    pub fn get_xinput_gamepad(&self, user_index: u32) -> Result<GamepadInfo, String> {
+        let xinput_state = &self.xinput_state;
+        let gamepad = if let Ok(_) = xinput_state.update(user_index) {
+            xinput_state.get_controller(user_index).unwrap()
+        } else {
+            return Err(format!(
+                "Failed to get controller for user index: {}",
+                user_index
+            ));
+        };
 
         // 映射按钮
         let buttons = gamepad
@@ -102,7 +108,7 @@ impl GamepadState {
         let name = format!("Xinput Controller {}", user_index);
 
         // 构造 GamepadInfo
-        GamepadInfo {
+        Ok(GamepadInfo {
             id: user_index,
             name,
             vendor_id: Some(vendor_id),
@@ -111,36 +117,31 @@ impl GamepadState {
             power_info: gamepad.power_info,
             axes,
             buttons,
-        }
+        })
     }
 
     /// 线程安全地获取当前游戏手柄IDs
     pub fn get_cur_gamepads(&self) -> HashSet<u32> {
-        if let Ok(xinput_state) = self.xinput_state.lock() {
-            let cur: HashSet<u32> = xinput_state.all_device_id().iter().cloned().collect();
-            if !cur.is_empty() {
-                if let Ok(mut cur_gamepads) = self.cur_gamepads.lock() {
-                    *cur_gamepads = cur.clone();
-                }
+        let cur: HashSet<u32> = self.xinput_state.all_device_id().iter().cloned().collect();
+        if !cur.is_empty() {
+            if let Ok(mut cur_gamepads) = self.cur_gamepads.lock() {
+                *cur_gamepads = cur.clone();
             }
-            cur
-        } else {
-            HashSet::new()
         }
+        cur
     }
 
     /// 线程安全地记录游戏手柄数据
-    pub fn record(&self, user_index: u32, is_filter_duplicate: bool) {
-        // 获取轴值
-        let xyxy = if let Ok(mut xinput_state) = self.xinput_state.lock() {
-            xinput_state.update(user_index);
-            xinput_state.get_axis_val().unwrap_or((0, 0, 0, 0))
+    pub fn record(&self, user_index: u32, is_filter_duplicate: bool) -> Result<(), String> {
+        // 获取轴值 - 先更新状态，然后获取轴值
+        let xyxy = if let Ok(_) = self.xinput_state.update(user_index) {
+            self.xinput_state.get_axis_val().unwrap_or((0, 0, 0, 0))
         } else {
-            (0, 0, 0, 0)
+            return Err("Failed to update XInput state".to_string());
         };
 
         // 记录数据
-        if let Ok(mut memo_map) = self.memo.lock() {
+        if let Ok(mut memo_map) = self.memo.write() {
             let memo = memo_map.entry(user_index).or_insert(Memo::new());
             let logs = &mut memo.polling_rate_log;
             let direction_log = &mut memo.direction_bins;
@@ -158,7 +159,7 @@ impl GamepadState {
             if is_filter_duplicate && !logs.is_empty() {
                 if let Some(last_log) = logs.last() {
                     if last_log.xyxy == xyxy {
-                        return;
+                        return Ok(());
                     }
                 }
             }
@@ -190,12 +191,16 @@ impl GamepadState {
             if logs.len() % CALCULATE_INTERVAL == 0 {
                 get_performance_stat(memo);
             }
+
+            return Ok(());
         }
+
+        Err("Failed to lock memo map".to_string())
     }
 
     /// 线程安全地设置日志大小
     pub fn set_log_size(&self, log_size: usize) {
-        if let Ok(mut memo_map) = self.memo.lock() {
+        if let Ok(mut memo_map) = self.memo.write() {
             memo_map.iter_mut().for_each(|(_, memo)| {
                 memo.log_size = log_size;
                 memo.polling_rate_log = Vec::with_capacity(log_size);
@@ -205,19 +210,19 @@ impl GamepadState {
 
     /// 线程安全地重置状态
     pub fn reset(&self) {
-        if let Ok(mut memo_map) = self.memo.lock() {
+        if let Ok(mut memo_map) = self.memo.write() {
             memo_map.iter_mut().for_each(|(_, memo)| {
                 memo.reset();
             });
         }
     }
 
-    /// 线程安全地获取轮询率数据
+    /// 无锁读取轮询率数据（使用读锁，不阻塞写入）
     pub fn get_polling_data(
         &self,
         user_id: u32,
     ) -> Option<(Vec<PollingRateLog>, PollingRateResult)> {
-        if let Ok(memo_map) = self.memo.lock() {
+        if let Ok(memo_map) = self.memo.read() {
             memo_map.get(&user_id).map(|memo| {
                 (
                     memo.polling_rate_log.clone(),

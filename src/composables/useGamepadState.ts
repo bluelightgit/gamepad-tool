@@ -46,9 +46,9 @@ export interface HistoryPoint {
 function createDefaultGamepad(id: number = 0): GamepadInfo {
   return {
     id,
-    name: "Loading...",
+    name: id === -1 ? "No Gamepad Connected" : "Loading...",
     guid: "",
-    power_info: "Unknown",
+    power_info: id === -1 ? "N/A" : "Unknown",
     axes: {
       "LeftThumbX": { axis: "LeftThumbX", value: 0 },
       "LeftThumbY": { axis: "LeftThumbY", value: 0 },
@@ -92,15 +92,16 @@ function createDefaultPollingRateResult(): PollingRateResult {
  * 手柄状态管理 Hook
  */
 export function useGamepadState() {
-  // 基础状态
-  const selectedGamepadId = ref<number>(0)
-  const gamepadIds = ref<number[]>([0])
+  // 基础状态 - 使用-1表示没有选中的手柄
+  const selectedGamepadId = ref<number>(-1)
+  const gamepadIds = ref<number[]>([])
   
   // 使用 shallowRef 优化大对象性能
-  const currentGamepad = shallowRef<GamepadInfo>(createDefaultGamepad(0))
-  const pollingRateData = reactive<Record<string, PollingRateResult>>({
-    '0': createDefaultPollingRateResult()
-  })
+  const currentGamepad = shallowRef<GamepadInfo>(createDefaultGamepad(-1))
+  const pollingRateData = reactive<Record<string, PollingRateResult>>({})
+  
+  // 初始化标记，确保只在第一次设置正确的默认值
+  const isInitialized = ref(false)
   
   // 应用状态
   const appState = reactive({
@@ -147,11 +148,17 @@ export function useGamepadState() {
   })
   
   // 计算属性
-  const selectedPollingRateData = computed(() => 
-    pollingRateData[selectedGamepadId.value.toString()] || createDefaultPollingRateResult()
-  )
-  
+  const selectedPollingRateData = computed(() => {
+    // 如果没有选中的手柄（-1），返回默认数据
+    if (selectedGamepadId.value === -1) {
+      return createDefaultPollingRateResult()
+    }
+    return pollingRateData[selectedGamepadId.value.toString()] || createDefaultPollingRateResult()
+  })
+
   const isGamepadAvailable = (id: number): boolean => {
+    // 简化逻辑：只要手柄ID在可用列表中，就认为是可用的
+    // 这适用于所有手柄，包括0号手柄（如果它真实存在的话）
     return gamepadIds.value.includes(id)
   }
   
@@ -257,6 +264,11 @@ export function useGamepadState() {
   
   // 轮询率数据更新 - 修复闪烁问题，确保只更新对应手柄的数据
   const updatePollingRateData = (data: PollingRateResult & { gamepad_id?: number }) => {
+    // 如果没有选中的手柄，不更新数据
+    if (selectedGamepadId.value === -1) {
+      return
+    }
+    
     // 如果数据包含手柄ID，只有当它匹配当前选中的手柄时才更新
     if (data.gamepad_id !== undefined && data.gamepad_id !== selectedGamepadId.value) {
       return // 忽略其他手柄的数据
@@ -274,21 +286,64 @@ export function useGamepadState() {
     }
   }
   
-  // 手柄ID更新 - 修复断开连接问题
+  // 手柄ID更新 - 修复断开连接问题，确保选中的手柄始终可用，特别处理初始化
   const updateGamepadIds = async (): Promise<number[]> => {
     try {
       const ids = await invoke<number[]>("get_gamepad_ids")
       const previousIds = [...gamepadIds.value]
       const currentSelectedId = selectedGamepadId.value
+      const wasInitialized = isInitialized.value
       
-      gamepadIds.value = ids.length > 0 ? ids : [0]
+      // 更新手柄列表
+      gamepadIds.value = ids.length > 0 ? ids : []
+      
+      // 如果没有可用的手柄，保持空状态
+      if (gamepadIds.value.length === 0) {
+        console.log('No gamepads available, keeping empty state')
+        
+        // 重置到空状态，但不添加虚拟的0号手柄
+        if (selectedGamepadId.value !== -1) {
+          selectedGamepadId.value = -1 // 使用-1表示没有选中的手柄
+          currentGamepad.value = createDefaultGamepad(-1)
+          triggerRef(currentGamepad)
+          leftJoystickHistory.value = []
+          rightJoystickHistory.value = []
+          // 清空所有轮询率数据
+          Object.keys(pollingRateData).forEach(key => delete pollingRateData[key])
+        }
+        
+        isInitialized.value = true
+        return []
+      }
+      
+      // 初始化时，选择第一个可用的手柄而不是默认的0
+      if (!wasInitialized) {
+        const firstAvailableId = gamepadIds.value[0]
+        console.log(`Initial gamepad setup: selecting gamepad ${firstAvailableId} from available: [${gamepadIds.value.join(', ')}]`)
+        
+        selectedGamepadId.value = firstAvailableId
+        currentGamepad.value = createDefaultGamepad(firstAvailableId)
+        triggerRef(currentGamepad)
+        leftJoystickHistory.value = []
+        rightJoystickHistory.value = []
+        
+        const userId = firstAvailableId.toString()
+        pollingRateData[userId] = createDefaultPollingRateResult()
+        
+        isInitialized.value = true
+        console.log(`Initial setup complete: gamepad ${firstAvailableId} selected`)
+        return gamepadIds.value
+      }
       
       // 检查当前选中的手柄是否仍然可用
-      if (!gamepadIds.value.includes(currentSelectedId)) {
-        console.log(`Gamepad ${currentSelectedId} disconnected, switching to available gamepad`)
-        
-        // 选择第一个可用的手柄
+      const isCurrentAvailable = gamepadIds.value.includes(currentSelectedId)
+      
+      if (!isCurrentAvailable) {
+        // 当前选中的手柄不可用，切换到第一个可用的手柄
         const newSelectedId = gamepadIds.value[0]
+        console.log(`Gamepad ${currentSelectedId} not available, switching to gamepad ${newSelectedId}`)
+        console.log(`Available gamepads: [${gamepadIds.value.join(', ')}]`)
+        
         selectedGamepadId.value = newSelectedId
         
         // 重置当前手柄数据为默认数据，避免显示已断开手柄的数据
@@ -305,33 +360,41 @@ export function useGamepadState() {
           pollingRateData[userId] = createDefaultPollingRateResult()
         }
         
-        console.log(`Switched to gamepad ${newSelectedId}`)
+        console.log(`Successfully switched to gamepad ${newSelectedId}`)
+      } else {
+        console.log(`Current gamepad ${currentSelectedId} is still available`)
       }
       
-      // 如果手柄列表发生变化，触发重新初始化
+      // 如果手柄列表发生变化，记录日志
       const idsChanged = previousIds.length !== gamepadIds.value.length || 
                          !previousIds.every(id => gamepadIds.value.includes(id))
       
       if (idsChanged) {
-        console.log('Gamepad list changed, triggering refresh')
-        // 可以在这里触发重新初始化或其他必要的操作
+        console.log('Gamepad list changed:', {
+          previous: previousIds,
+          current: gamepadIds.value,
+          selectedId: selectedGamepadId.value
+        })
       }
       
       return gamepadIds.value
     } catch (error) {
       console.error("Error updating gamepad IDs:", error)
-      gamepadIds.value = [0]
       
-      // 发生错误时也要检查当前选中的手柄
-      if (selectedGamepadId.value !== 0) {
-        selectedGamepadId.value = 0
-        currentGamepad.value = createDefaultGamepad(0)
+      // 发生错误时回退到空状态
+      gamepadIds.value = []
+      if (selectedGamepadId.value !== -1) {
+        selectedGamepadId.value = -1
+        currentGamepad.value = createDefaultGamepad(-1)
         triggerRef(currentGamepad)
         leftJoystickHistory.value = []
         rightJoystickHistory.value = []
+        // 清空所有轮询率数据
+        Object.keys(pollingRateData).forEach(key => delete pollingRateData[key])
       }
+      isInitialized.value = true
       
-      return [0]
+      return []
     }
   }
   
@@ -392,6 +455,7 @@ export function useGamepadState() {
     pollingRateData,
     appState,
     settings,
+    isInitialized,
     
     // 历史数据
     leftJoystickHistory,

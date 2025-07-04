@@ -31,92 +31,104 @@
 
     <!-- 主内容区域 -->
     <div v-if="!appState.isInitializing && !appState.hasError" class="main-layout">
-      <!-- 手柄信息 -->
-      <div class="gamepad-info-card">
-        <h2>{{ currentGamepad.name }}</h2>
-        <p>Power: {{ currentGamepad.power_info }}</p>
+      <!-- 无手柄状态 -->
+      <div v-if="gamepadIds.length === 0" class="no-gamepad-state">
+        <div class="no-gamepad-card">
+          <div class="no-gamepad-icon">🎮</div>
+          <h2>No Gamepad Connected</h2>
+          <p>Please connect a gamepad to begin testing</p>
+        </div>
       </div>
 
-      <!-- 布局容器 -->
-      <div class="layout-grid">
-        <!-- 摇杆区域 -->
-        <div class="grid-item joysticks-area">
-          <div class="joysticks-header">
-            <h3>Joysticks</h3>
-            <div class="joystick-controls">
-              <Tooltip :text="t('tooltips.showTrail')" position="bottom">
-                <button
-                  class="toggle-button"
-                  :class="{ active: settings.showHistory }"
-                  @click="toggleHistoryDisplay"
-                >
-                  {{ settings.showHistory ? t('buttons.hideTrail') : t('buttons.showTrail') }}
-                </button>
-              </Tooltip>
-              <Tooltip :text="t('tooltips.cleanLog')" position="bottom">
-                <button
-                  v-if="settings.showHistory"
-                  class="clear-button"
-                  @click="handleClearHistory"
-                >
-                  {{ t('buttons.clear') }}
-                </button>
-              </Tooltip>
-            </div>
-          </div>
-          <div class="joystick-group">
-            <OptimizedJoystick
-              :axis-x="getAxisValue('LeftThumbX')"
-              :axis-y="getAxisValue('LeftThumbY')"
-              :history-points="leftJoystickHistory"
-              :show-history="settings.showHistory"
-              :inner-deadzone="settings.innerDeadzone"
-              :outer-deadzone="settings.outerDeadzone"
-            />
-            <OptimizedJoystick
-              :axis-x="getAxisValue('RightThumbX')"
-              :axis-y="getAxisValue('RightThumbY')"
-              :history-points="rightJoystickHistory"
-              :show-history="settings.showHistory"
-              :inner-deadzone="settings.innerDeadzone"
-              :outer-deadzone="settings.outerDeadzone"
-            />
-          </div>
+      <!-- 有手柄时的正常布局 -->
+      <div v-else class="gamepad-content">
+        <!-- 手柄信息 -->
+        <div class="gamepad-info-card">
+          <h2>{{ currentGamepad.name }}</h2>
+          <p>Power: {{ currentGamepad.power_info }}</p>
         </div>
 
-        <!-- 控制区域容器 -->
-        <div class="controls-container">
-          <!-- 按键区域 -->
-          <div class="grid-item buttons-area">
-            <GamepadButtons :gamepad="currentGamepad" />
-          </div>
-
-          <!-- 性能数据显示区域 -->
-          <div class="grid-item performance-area">
-            <div class="performance-header">
-              <h3>Performance Stats</h3>
-              <div class="performance-controls">
-                <Tooltip :text="t('tooltips.logToggle')" position="bottom">
+        <!-- 布局容器 -->
+        <div class="layout-grid">
+          <!-- 摇杆区域 -->
+          <div class="grid-item joysticks-area">
+            <div class="joysticks-header">
+              <h3>Joysticks</h3>
+              <div class="joystick-controls">
+                <Tooltip :text="t('tooltips.showTrail')" position="bottom">
                   <button
-                    class="log-toggle-button"
-                    :class="{ active: appSettings.isRecordLog }"
-                    @click="handleToggleRecordLog"
+                    class="toggle-button"
+                    :class="{ active: settings.showHistory }"
+                    @click="toggleHistoryDisplay"
                   >
-                    {{ appSettings.isRecordLog ? t('buttons.logOn') : t('buttons.logOff') }}
+                    {{ settings.showHistory ? t('buttons.hideTrail') : t('buttons.showTrail') }}
                   </button>
                 </Tooltip>
                 <Tooltip :text="t('tooltips.cleanLog')" position="bottom">
                   <button
+                    v-if="settings.showHistory"
                     class="clear-button"
-                    @click="handleCleanLog"
+                    @click="handleClearHistory"
                   >
-                    {{ t('buttons.cleanLog') }}
+                    {{ t('buttons.clear') }}
                   </button>
                 </Tooltip>
               </div>
             </div>
-            <div class="performance-content">
-              <PollingRateDisplay :polling-rate-data="selectedPollingRateData" />
+            <div class="joystick-group">
+              <OptimizedJoystick
+                :axis-x="getAxisValue('LeftThumbX')"
+                :axis-y="getAxisValue('LeftThumbY')"
+                :history-points="leftJoystickHistory"
+                :show-history="settings.showHistory"
+                :inner-deadzone="settings.innerDeadzone"
+                :outer-deadzone="settings.outerDeadzone"
+              />
+              <OptimizedJoystick
+                :axis-x="getAxisValue('RightThumbX')"
+                :axis-y="getAxisValue('RightThumbY')"
+                :history-points="rightJoystickHistory"
+                :show-history="settings.showHistory"
+                :inner-deadzone="settings.innerDeadzone"
+                :outer-deadzone="settings.outerDeadzone"
+              />
+            </div>
+          </div>
+
+          <!-- 控制区域容器 -->
+          <div class="controls-container">
+            <!-- 按键区域 -->
+            <div class="grid-item buttons-area">
+              <GamepadButtons :gamepad="currentGamepad" />
+            </div>
+
+            <!-- 性能数据显示区域 -->
+            <div class="grid-item performance-area">
+              <div class="performance-header">
+                <h3>Performance Stats</h3>
+                <div class="performance-controls">
+                  <Tooltip :text="t('tooltips.logToggle')" position="bottom">
+                    <button
+                      class="log-toggle-button"
+                      :class="{ active: appSettings.isRecordLog }"
+                      @click="handleToggleRecordLog"
+                    >
+                      {{ appSettings.isRecordLog ? t('buttons.logOn') : t('buttons.logOff') }}
+                    </button>
+                  </Tooltip>
+                  <Tooltip :text="t('tooltips.cleanLog')" position="bottom">
+                    <button
+                      class="clear-button"
+                      @click="handleCleanLog"
+                    >
+                      {{ t('buttons.cleanLog') }}
+                    </button>
+                  </Tooltip>
+                </div>
+              </div>
+              <div class="performance-content">
+                <PollingRateDisplay :polling-rate-data="selectedPollingRateData" />
+              </div>
             </div>
           </div>
         </div>
@@ -155,6 +167,7 @@ const {
   updateFrameRate,
   updateLogSize,
   updateSelectedGamepadId,
+  setSelectedGamepadId,
   updateIsRecordLog,
   cleanup: cleanupAppManager,
   tauriCommands
@@ -248,13 +261,41 @@ onMounted(async () => {
     // 初始化语言
     initLanguage()
     
-    // 启动应用
-    await initializeApp()
-    
-    // 获取初始手柄列表
+    // 先获取手柄列表，确保选中正确的初始手柄
+    console.log("Getting initial gamepad list...")
     await updateGamepadIds()
+    console.log(`Initial gamepad selected: ${selectedGamepadId.value} from available: [${gamepadIds.value.join(', ')}]`)
     
-    // 设置定时器定期刷新手柄列表，并处理连接变化
+    // 确保应用管理器使用正确的手柄ID
+    if (appSettings.selectedGamepadId !== selectedGamepadId.value) {
+      console.log(`Syncing app manager gamepad ID from ${appSettings.selectedGamepadId} to ${selectedGamepadId.value}`)
+      // 使用 setSelectedGamepadId 静默设置，不触发重启
+      setSelectedGamepadId(selectedGamepadId.value)
+    }
+    
+    // 只有在有可用手柄时才启动应用
+    if (selectedGamepadId.value !== -1) {
+      await initializeApp()
+    } else {
+      // 没有手柄时，仍需要标记初始化完成
+      appState.isInitializing = false
+      console.log("No gamepad available, skipping app initialization")
+    }
+    
+    // 设置两个定时器：一个用于快速检测，一个用于常规更新
+    // 快速检测：每秒检查一次手柄可用性，用于快速响应断开连接
+    const quickCheckInterval = setInterval(async () => {
+      const currentIds = [...gamepadIds.value]
+      const currentSelected = selectedGamepadId.value
+      
+      // 快速检查当前选中的手柄是否仍然可用
+      if (currentSelected !== -1 && !currentIds.includes(currentSelected)) {
+        console.log(`Quick check: Gamepad ${currentSelected} may be disconnected, triggering update`)
+        await updateGamepadIds()
+      }
+    }, 1000) // 每秒检查一次
+    
+    // 常规更新：每2秒完整更新手柄列表，并处理连接变化
     const gamepadUpdateInterval = setInterval(async () => {
       const previousSelectedId = selectedGamepadId.value
       const previousIds = [...gamepadIds.value]
@@ -266,9 +307,27 @@ onMounted(async () => {
         console.log(`Gamepad changed from ${previousSelectedId} to ${selectedGamepadId.value}, updating app manager`)
         try {
           // 同步应用管理器的选中手柄ID
-          await updateSelectedGamepadId(selectedGamepadId.value)
+          if (selectedGamepadId.value !== -1) {
+            await updateSelectedGamepadId(selectedGamepadId.value)
+          } else {
+            // 没有手柄时，停止应用更新
+            setSelectedGamepadId(selectedGamepadId.value)
+            if (appState.isMainThreadRunning) {
+              await tauriCommands.stopMainThread()
+            }
+          }
         } catch (error) {
           console.error("Failed to sync gamepad selection with app manager:", error)
+        }
+      }
+      
+      // 检查是否从无手柄状态切换到有手柄状态
+      if (previousSelectedId === -1 && selectedGamepadId.value !== -1) {
+        console.log("Gamepad connected, initializing app...")
+        try {
+          await initializeApp()
+        } catch (error) {
+          console.error("Failed to initialize app after gamepad connection:", error)
         }
       }
       
@@ -278,14 +337,18 @@ onMounted(async () => {
                          !previousIds.every(id => currentIds.includes(id))
       
       if (idsChanged) {
-        console.log('Gamepad list changed:', { previousIds, currentIds })
+        console.log('Gamepad list changed:', { 
+          previousIds, 
+          currentIds, 
+          selectedId: selectedGamepadId.value 
+        })
       }
     }, 2000)
     
-    onBeforeUnmount(() => clearInterval(gamepadUpdateInterval))
-    
-    // 注册一个渲染回调来更新UI（如果需要的话）
-    // Example: registerRenderCallback(() => { /* high-frequency update */ })
+    onBeforeUnmount(() => {
+      clearInterval(quickCheckInterval)
+      clearInterval(gamepadUpdateInterval)
+    })
     
   } catch (error) {
     console.error("Failed to mount GamepadTestPage:", error)
@@ -364,6 +427,44 @@ onBeforeUnmount(() => {
   gap: 8px;
   flex: 1;
   min-height: 0;
+}
+
+.no-gamepad-state {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 300px;
+  padding: 40px;
+}
+
+.no-gamepad-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  background: #f8f9fa;
+  border-radius: 12px;
+  border: 2px dashed #ddd;
+  text-align: center;
+}
+
+.no-gamepad-icon {
+  font-size: 48px;
+  opacity: 0.6;
+}
+
+.no-gamepad-card h2 {
+  margin: 0;
+  color: #666;
+  font-size: 1.4em;
+}
+
+.no-gamepad-card p {
+  margin: 0;
+  color: #999;
+  font-size: 1em;
 }
 
 .gamepad-info-card {

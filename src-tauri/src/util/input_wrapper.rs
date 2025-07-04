@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Mutex};
 use std::fmt;
 use windows::Win32::UI::Input::XboxController::{
     XInputGetBatteryInformation, XInputGetState, BATTERY_DEVTYPE, BATTERY_LEVEL_EMPTY,
@@ -98,13 +98,13 @@ impl fmt::Display for Axes {
     }
 }
 
-pub trait RawInput<T> {
+pub trait RawInput<T, E> {
     fn new() -> Self;
-    fn set_state(&mut self, state: T);
-    fn get_state(&self) -> Option<T>;
-    fn update(&mut self, id: u32) -> Option<T>;
+    fn set_state(&self, state: T);
+    fn get_state(&self) -> Result<T, E>;
+    fn update(&self, id: u32) -> Result<T, E>;
     fn all_device_id(&self) -> Vec<u32>;
-    fn get_controller(&self, id: u32) -> Option<Gamepad>;
+    fn get_controller(&self, id: u32) -> Result<Gamepad, E>;
     fn get_axis_val(&self) -> Option<(i16, i16, i16, i16)>;
 }
 
@@ -135,59 +135,63 @@ pub struct Gamepad {
 
 #[derive(Debug)]
 pub struct XInput {
-    state: (XINPUT_STATE, XINPUT_BATTERY_INFORMATION),
-    update_lock: std::sync::Mutex<()>,
+    state: Mutex<(XINPUT_STATE, XINPUT_BATTERY_INFORMATION)>,
 }
 
-unsafe impl Sync for XInput {}
-
-impl RawInput<(XINPUT_STATE, XINPUT_BATTERY_INFORMATION)> for XInput {
+impl RawInput<(XINPUT_STATE, XINPUT_BATTERY_INFORMATION), String> for XInput {
     fn new() -> Self {
         XInput {
-            state: (
+            state: Mutex::new((
                 XINPUT_STATE::default(),
                 XINPUT_BATTERY_INFORMATION::default(),
-            ),
-            update_lock: std::sync::Mutex::new(()),
+            )),
         }
     }
 
-    fn set_state(&mut self, state: (XINPUT_STATE, XINPUT_BATTERY_INFORMATION)) {
-        self.state = state;
+    fn set_state(&self, state: (XINPUT_STATE, XINPUT_BATTERY_INFORMATION)) {
+        if let Ok(mut current_state) = self.state.lock() {
+            *current_state = state;
+        }
     }
 
-    fn get_state(&self) -> Option<(XINPUT_STATE, XINPUT_BATTERY_INFORMATION)> {
-        Some(self.state)
+    fn get_state(&self) -> Result<(XINPUT_STATE, XINPUT_BATTERY_INFORMATION), String> {
+        if let Ok(current_state) = self.state.lock() {
+            return Ok(*current_state);
+        }
+        Err("Failed to lock state".to_string())
     }
 
-    fn update(&mut self, id: u32) -> Option<(XINPUT_STATE, XINPUT_BATTERY_INFORMATION)> {
-        if let Ok(ref mut _lock) = self.update_lock.try_lock() {
-            let mut state = self.state;
+    fn update(&self, id: u32) -> Result<(XINPUT_STATE, XINPUT_BATTERY_INFORMATION), String> {
+        if let Ok(mut current_state) = self.state.lock() {
+            let mut state = *current_state;
             let result = unsafe { XInputGetState(id, &mut state.0) };
             unsafe {
                 XInputGetBatteryInformation(id, BATTERY_DEVTYPE(0u8), &mut state.1);
             }
             if result == 0 {
                 // real device
-                self.state = state;
+                *current_state = state;
             } else {
                 // no device => clear state
-                self.state = (
+                *current_state = (
                     XINPUT_STATE::default(),
                     XINPUT_BATTERY_INFORMATION::default(),
                 );
             }
+            return Ok(state);
         }
-        Some(self.state)
+        Err(format!("Failed to get state for device ID {}", id))
     }
 
     fn all_device_id(&self) -> Vec<u32> {
         let mut device_ids = Vec::new();
         for i in 0..XUSER_MAX_COUNT {
-            let mut state = self.state.0;
-            let result = unsafe { XInputGetState(i, &mut state) };
-            if result == 0 {
-                device_ids.push(i);
+            if let Ok(state) = self.state.lock() {
+                let mut test_state = state.0;
+                let result = unsafe { XInputGetState(i, &mut test_state) };
+                if result == 0 {
+                    device_ids.push(i);
+                }
             }
         }
         #[cfg(debug_assertions)]
@@ -197,11 +201,16 @@ impl RawInput<(XINPUT_STATE, XINPUT_BATTERY_INFORMATION)> for XInput {
         device_ids
     }
 
-    fn get_controller(&self, id: u32) -> Option<Gamepad> {
-        // If no real state stored (update cleared), produce virtual gamepad in debug
-        let (ref xi_state, ref batt) = self.state;
+    fn get_controller(&self, id: u32) -> Result<Gamepad, String> {
+        // 获取当前状态
+        let (xi_state, batt) = if let Ok(state) = self.state.lock() {
+            *state
+        } else {
+            return Err("Failed to lock state".to_string());
+        };
+
         // real device mapping
-        let battery_state = batt;
+        let battery_state = &batt;
         let mut gamepad = Gamepad {
             id,
             name: "XInput Controller".to_string(),
@@ -362,13 +371,17 @@ impl RawInput<(XINPUT_STATE, XINPUT_BATTERY_INFORMATION)> for XInput {
                     value: trig,
                 },
             );
-            return Some(gamepad);
         }
-        Some(gamepad)
+        Ok(gamepad)
     }
 
     fn get_axis_val(&self) -> Option<(i16, i16, i16, i16)> {
-        let state = self.state.0;
+        let state = if let Ok(state) = self.state.lock() {
+            state.0
+        } else {
+            return None;
+        };
+
         #[cfg(debug_assertions)]
         if state.Gamepad.sThumbLX == 0
             && state.Gamepad.sThumbLY == 0

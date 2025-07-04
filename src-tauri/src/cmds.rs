@@ -6,6 +6,10 @@ use tauri::{AppHandle, Emitter};
 // 添加专用线程池支持
 use std::thread;
 
+// 添加高精度计时器支持
+#[cfg(target_os = "windows")]
+use std::time::Instant;
+
 use crate::{
     util::gamepad_util::{polling_rate_log_to_output_log, PollingRateLog, PollingRateResult},
     GamepadState,
@@ -13,7 +17,7 @@ use crate::{
 use tokio::time::{self, Duration};
 
 const STANDBY_SLEEP_TIME: u64 = 10000;
-const POLLING_RATE_MICROSECONDS: u64 = 125;
+const POLLING_RATE_MICROSECONDS: u64 = 250;
 
 pub struct GlobalGamepadState {
     pub gamepad_state: Arc<GamepadState>,
@@ -76,37 +80,26 @@ pub fn start_update(
 
     let gamepad_state = Arc::clone(&state.gamepad_state);
 
-    // 高频轮询线程
     if is_record_log {
         let polling_gamepad_state = gamepad_state.clone();
         let polling_cancel_flag_clone = polling_cancel_flag.clone();
-        
+
         thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async {
-                let mut polling_interval = time::interval(Duration::from_micros(POLLING_RATE_MICROSECONDS));
-                polling_interval.set_missed_tick_behavior(time::MissedTickBehavior::Burst);
-                let mut standby_interval = time::interval(Duration::from_micros(STANDBY_SLEEP_TIME));
+            let polling_duration = Duration::from_micros(POLLING_RATE_MICROSECONDS);
+            let standby_duration = Duration::from_micros(STANDBY_SLEEP_TIME);
 
-                loop {
-                    if !polling_cancel_flag_clone.load(Ordering::SeqCst) {
-                        break;
-                    }
-                    
-                    // 快速检查是否有游戏手柄连接
-                    let has_gamepads = !polling_gamepad_state.get_cur_gamepads().is_empty();
-
-                    if !has_gamepads {
-                        standby_interval.tick().await;
-                        continue;
-                    }
-
-                    // 高频记录游戏手柄状态
-                    polling_gamepad_state.record(user_id, true);
-
-                    polling_interval.tick().await;
+            loop {
+                if !polling_cancel_flag_clone.load(Ordering::SeqCst) {
+                    return;
                 }
-            });
+
+                // 高频记录游戏手柄状态
+                if let Ok(_) = polling_gamepad_state.record(user_id, true) {
+                    precise_sleep(polling_duration);
+                } else {
+                    precise_sleep(standby_duration);
+                }
+            }
         });
     }
 
@@ -116,39 +109,50 @@ pub fn start_update(
 
         loop {
             if !cancel_flag.load(Ordering::SeqCst) {
-                break;
+                return;
             }
 
             // 获取数据并发送
-            let data_result = {
-                let gamepad = gamepad_state.get_xinput_gamepad(user_id);
-                
-                // 获取轮询率数据
-                if let Some((polling_rate_log, polling_rate_result)) = gamepad_state.get_polling_data(user_id) {
-                    Some((gamepad, polling_rate_log, polling_rate_result))
-                } else {
-                    Some((
-                        gamepad,
-                        vec![PollingRateLog::new()],
-                        PollingRateResult::new(),
-                    ))
-                }
-            };
+            if let Ok(gamepad) = gamepad_state.get_xinput_gamepad(user_id) {
+                let app_clone = app_handle.clone();
 
-            if let Some((gamepad, polling_rate_log, polling_rate_result)) = data_result {
-                if gamepad.id == user_id {
-                    let output_logs = polling_rate_log_to_output_log(&polling_rate_log);
+                // 总是发送手柄基本信息
+                let gamepad_clone = gamepad.clone();
+                tokio::spawn(async move {
+                    let _ = app_clone.emit("gamepads_info", gamepad_clone);
+                });
 
+                if let Some((polling_rate_log, polling_rate_result)) =
+                    gamepad_state.get_polling_data(user_id)
+                {
                     let app_clone = app_handle.clone();
-                    tokio::spawn(async move {
-                        let _ = app_clone.emit("gamepads_info", gamepad);
-                        let _ = app_clone.emit("polling_rate_log", output_logs);
-                        let _ = app_clone.emit("polling_rate_result", polling_rate_result);
-                    });
+                    // tokio::spawn(async move {
+                    let _ = app_clone.emit(
+                        "polling_rate_log",
+                        polling_rate_log_to_output_log(&polling_rate_log),
+                    );
+                    let _ = app_clone.emit("polling_rate_result", polling_rate_result);
+                    // });
                 }
             }
 
             emit_interval.tick().await;
         }
     });
+}
+
+// 高精度睡眠函数，在Windows上使用更精准的计时
+fn precise_sleep(duration: Duration) {
+    #[cfg(target_os = "windows")]
+    {
+        let start = Instant::now();
+        while start.elapsed() < duration {
+            // 使用yield来避免忙等待
+            thread::yield_now();
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        thread::sleep(duration);
+    }
 }

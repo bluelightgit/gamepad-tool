@@ -35,7 +35,7 @@ export function useAppManager() {
   const appSettings = reactive<AppSettings>({
     frameRate: 120,
     logSize: 2000,
-    selectedGamepadId: 0,
+    selectedGamepadId: -1, // -1 表示没有选中的手柄
     isRecordLog: false
   })
   
@@ -179,6 +179,11 @@ export function useAppManager() {
     }
   }
 
+  // 静默设置选中的手柄ID（不触发重启，用于初始化）
+  const setSelectedGamepadId = (newId: number): void => {
+    appSettings.selectedGamepadId = newId
+  }
+
   // 是否记录log数据
   const updateIsRecordLog = async (isRecordLog: boolean): Promise<void> => {
     if (isRecordLog !== appSettings.isRecordLog) {
@@ -227,6 +232,7 @@ export function useAppManager() {
     updateFrameRate,
     updateLogSize,
     updateSelectedGamepadId,
+    setSelectedGamepadId,
     updateIsRecordLog,
     cleanup,
     
